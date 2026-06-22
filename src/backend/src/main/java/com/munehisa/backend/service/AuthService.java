@@ -132,7 +132,6 @@ public class AuthService {
     }
 
     public ResponseDTO resetPassword(ResetPasswordRequestDTO body) {
-        System.out.println("PASSWORD RESET TOKEN: " + body.resetPasswordToken());
         User user = repository.findByResetPasswordToken(body.resetPasswordToken()).orElseThrow(ResetPasswordTokenNotFoundException::new);
         if (user.getResetPasswordTokenExpiry().isBefore(Instant.now())) {
             throw new ResetPasswordTokenExpiredException();

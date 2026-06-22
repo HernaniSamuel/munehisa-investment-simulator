@@ -28,7 +28,4 @@ public class User {
     private Instant resetPasswordTokenExpiry;
     private Instant tokenExpiry;
     private boolean isVerified;
-
-    @Column(name = "reset_token")
-    private String resetToken;
 }
