@@ -1,5 +1,6 @@
 package com.munehisa.backend.infra.cors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -12,14 +13,14 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    @Value("${cors.allowed-origins}")
+    private List<String> allowedOrigins;
+
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(WebContentGenerator webContentGenerator) {
+    public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173", // dev frontend url
-                "http://localhost:5000"  // future production frontend url here
-        ));
+        config.setAllowedOrigins(allowedOrigins);
 
         config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTION", "PATCH", "PUT"));
         config.setAllowedHeaders(List.of("Authorization", "Content-type"));

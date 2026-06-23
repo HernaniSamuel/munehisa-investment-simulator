@@ -8,9 +8,7 @@ import com.munehisa.backend.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -26,9 +24,7 @@ public class AuthService {
     private final UserRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
-
-    @Autowired
-    private EmailService emailService;
+    private final EmailService emailService;
 
     @Value("${verification.token.expiration}")
     private long verificationTokenExpirationMs;
@@ -36,7 +32,7 @@ public class AuthService {
     @Value("${reset.token.expiration}")
     private long resetPasswordTokenExpirationMs;
 
-    public RegisterResponseDTO register(RegisterRequestDTO body) {
+    public void register(RegisterRequestDTO body) {
 
         Optional<User> existingUser = repository.findByEmail(body.email());
         if (existingUser.isPresent()) {
@@ -55,65 +51,67 @@ public class AuthService {
 
         String verificationToken = UUID.randomUUID().toString();
         user.setVerificationToken(verificationToken);
-        user.setTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
+        user.setVerificationTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
         repository.save(user);
 
         emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken());
-
-        return new RegisterResponseDTO(HttpStatus.OK, "Registration successful, please check your email");
     }
 
-    public ResendEmailResponseDTO resendEmail(ResendEmailRequestDTO body) {
-        User user = repository.findByEmail(body.email()).orElseThrow(UserNotFoundException::new);
+    public Optional<ResendEmailResponseDTO> resendEmail(ResendEmailRequestDTO body) {
+        User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
 
-        if (user.isVerified()) { throw new UserAlreadyExistsException(); }
-        if (user.getTokenExpiry().isAfter(Instant.now())) {
-            return new ResendEmailResponseDTO(
-                    HttpStatus.CONFLICT,
+        if (user.isVerified()) {
+            throw new UserAlreadyExistsException();
+        }
+        if (user.getVerificationTokenExpiry().isAfter(Instant.now())) {
+            ResendEmailResponseDTO email_sent = new ResendEmailResponseDTO(
                     "A verification email has already been sent. Please wait until the current token expires before requesting a new one.",
-                    user.getTokenExpiry());
+                    user.getVerificationTokenExpiry());
+            return Optional.of(email_sent);
         }
 
         String verificationToken = UUID.randomUUID().toString();
         user.setVerificationToken(verificationToken);
-        user.setTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
+        user.setVerificationTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
         repository.save(user);
 
         emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken());
 
-        return new ResendEmailResponseDTO(HttpStatus.OK, "Verification email resent, please check your email", null);
+        return Optional.empty();
     }
 
-    public ResponseDTO verify(String verificationToken) {
-        User user = repository.findByVerificationToken(verificationToken).orElseThrow(VerificationTokenNotFoundException::new);
-        if (user.getTokenExpiry().isBefore(Instant.now())) {
+    public LoginResponseDTO verify(String verificationToken) {
+        User user = repository.findByVerificationToken(verificationToken)
+                .orElseThrow(VerificationTokenNotFoundException::new);
+
+        if (user.getVerificationTokenExpiry().isBefore(Instant.now())) {
             throw new VerificationTokenExpiredException();
-        } else {
-            user.setVerified(true);
-            user.setVerificationToken(null);
-            user.setTokenExpiry(null);
-            repository.save(user);
-
-            String token = tokenService.generateToken(user);
-            return new ResponseDTO(user.getName(), token);
         }
+
+        user.setVerified(true);
+        user.setVerificationToken(null);
+        user.setVerificationTokenExpiry(null);
+        repository.save(user);
+
+        String token = tokenService.generateToken(user);
+        return new LoginResponseDTO(user.getName(), token);
     }
 
-    public ResponseDTO login(LoginRequestDTO body) {
-        User user = repository.findByEmail(body.email()).orElseThrow(UserNotFoundException::new);
+    public LoginResponseDTO login(LoginRequestDTO body) {
+        User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
         if (passwordEncoder.matches(body.password(), user.getPassword())) {
             if (!user.isVerified()) {
                 throw new EmailPendingVerificationException();
             } else {
                 String token = tokenService.generateToken(user);
-                return new ResponseDTO(user.getName(), token);
+                return new LoginResponseDTO(user.getName(), token);
             }
         }
-        throw new WrongPasswordException();
+        throw new InvalidCredentialsException();
     }
 
-    public ResendEmailResponseDTO forgotPassword(ResendEmailRequestDTO body) {
-        User user = repository.findByEmail(body.email()).orElseThrow(UserNotFoundException::new);
+    public ForgotPasswordResponseDTO forgotPassword(ForgotPasswordRequestDTO body) {
+        User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
 
         if (user.getResetPasswordTokenExpiry() == null || user.getResetPasswordTokenExpiry().isBefore(Instant.now())) {
             String resetPasswordToken = UUID.randomUUID().toString();
@@ -123,30 +121,28 @@ public class AuthService {
 
             emailService.sendPasswordRecoverEmail(user.getEmail(), user.getResetPasswordToken());
 
-            return new ResendEmailResponseDTO(HttpStatus.OK, "Reset password request accepted. Please look your email.", null);
+            return new ForgotPasswordResponseDTO("Reset password request accepted. Please look your email.", null);
         } else {
-            return new ResendEmailResponseDTO(HttpStatus.BAD_REQUEST,
+            return new ForgotPasswordResponseDTO(
                     "A password-recover email has already been sent. Please wait until the current token expires before requesting a new one.",
                     user.getResetPasswordTokenExpiry());
         }
     }
 
-    public ResponseDTO resetPassword(ResetPasswordRequestDTO body) {
-        User user = repository.findByResetPasswordToken(body.resetPasswordToken()).orElseThrow(ResetPasswordTokenNotFoundException::new);
+    public LoginResponseDTO resetPassword(ResetPasswordRequestDTO body) {
+        User user = repository.findByResetPasswordToken(body.resetPasswordToken())
+                .orElseThrow(ResetPasswordTokenNotFoundException::new);
+
         if (user.getResetPasswordTokenExpiry().isBefore(Instant.now())) {
             throw new ResetPasswordTokenExpiredException();
-        } else {
-            user.setPassword(passwordEncoder.encode(body.newPassword()));
-            user.setResetPasswordToken(null);
-            user.setResetPasswordTokenExpiry(null);
-            repository.save(user);
-
-            if(user.isVerified()) {
-                String token = tokenService.generateToken(user);
-                return new ResponseDTO(user.getName(), token);
-            } else {
-                throw new EmailPendingVerificationException();
-            }
         }
+
+        user.setPassword(passwordEncoder.encode(body.newPassword()));
+        user.setResetPasswordToken(null);
+        user.setResetPasswordTokenExpiry(null);
+        repository.save(user);
+
+        String token = tokenService.generateToken(user);
+        return new LoginResponseDTO(user.getName(), token);
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @Service
 public class TokenService {
@@ -30,22 +31,22 @@ public class TokenService {
 
             return token;
 
-        } catch(JWTCreationException excption) {
+        } catch (JWTCreationException excption) {
             throw new RuntimeException("AuthError");
         }
     }
 
-    public String validateToken(String token) {
+    public Optional<String> validateToken(String token) {
         try {
             Algorithm algorithm = Algorithm.HMAC256(secret);
-            return JWT.require(algorithm)
+            return Optional.of(JWT.require(algorithm)
                     .withIssuer("munehisa-backend")
                     .build()
                     .verify(token)
-                    .getSubject();
+                    .getSubject());
 
-        } catch(JWTVerificationException exception) {
-            return null;
+        } catch (JWTVerificationException exception) {
+            return Optional.empty();
         }
     }
 

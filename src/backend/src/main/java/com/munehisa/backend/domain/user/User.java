@@ -26,6 +26,6 @@ public class User {
     private String verificationToken;
     private String resetPasswordToken;
     private Instant resetPasswordTokenExpiry;
-    private Instant tokenExpiry;
+    private Instant verificationTokenExpiry;
     private boolean isVerified;
 }
