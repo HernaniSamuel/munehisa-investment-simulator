@@ -10,53 +10,53 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @ControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
-    private ResponseEntity<RestErrorMessage> defaultHandler(RuntimeException exceptionClass, HttpStatus httpStatus) {
+    public ResponseEntity<RestErrorMessage> buildErrorResponse(RuntimeException exceptionClass, HttpStatus httpStatus) {
         RestErrorMessage standardErrorMessage = new RestErrorMessage(httpStatus, exceptionClass.getMessage());
         return ResponseEntity.status(httpStatus).body(standardErrorMessage);
     }
 
     @ExceptionHandler(RuntimeException.class)
-    private ResponseEntity<RestErrorMessage> runtimeExceptionHandler(RuntimeException exception) {
-        return defaultHandler(exception, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    @ExceptionHandler(UserNotFoundException.class)
-    private ResponseEntity<RestErrorMessage> userNotFoundHandler(UserNotFoundException exception) {
-        return defaultHandler(exception, HttpStatus.NOT_FOUND);
+    public ResponseEntity<RestErrorMessage> runtimeExceptionHandler(RuntimeException exception) {
+        return buildErrorResponse(exception, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     @ExceptionHandler(UserAlreadyExistsException.class)
-    private ResponseEntity<RestErrorMessage> userAlreadyExistsHandler(UserAlreadyExistsException exception) {
-        return defaultHandler(exception, HttpStatus.CONFLICT);
+    public ResponseEntity<RestErrorMessage> userAlreadyExistsHandler(UserAlreadyExistsException exception) {
+        return buildErrorResponse(exception, HttpStatus.CONFLICT);
     }
 
-    @ExceptionHandler(WrongPasswordException.class)
-    private ResponseEntity<RestErrorMessage> wrongPasswordHandler(WrongPasswordException exception) {
-        return defaultHandler(exception, HttpStatus.UNAUTHORIZED);
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<RestErrorMessage> invalidCredentialsHandler(InvalidCredentialsException exception) {
+        return buildErrorResponse(exception, HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(EmailPendingVerificationException.class)
-    private ResponseEntity<RestErrorMessage> emailPendingVerificationHandler(EmailPendingVerificationException exception) {
-        return defaultHandler(exception, HttpStatus.FORBIDDEN);
+    public ResponseEntity<RestErrorMessage> emailPendingVerificationHandler(EmailPendingVerificationException exception) {
+        return buildErrorResponse(exception, HttpStatus.FORBIDDEN);
     }
 
     @ExceptionHandler(VerificationTokenNotFoundException.class)
-    private ResponseEntity<RestErrorMessage> verificationTokenNotFoundHandler(VerificationTokenNotFoundException exception) {
-        return defaultHandler(exception, HttpStatus.NOT_FOUND);
+    public ResponseEntity<RestErrorMessage> verificationTokenNotFoundHandler(VerificationTokenNotFoundException exception) {
+        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
     }
 
     @ExceptionHandler(VerificationTokenExpiredException.class)
-    private ResponseEntity<RestErrorMessage> verificationTokenExpiredHandler(VerificationTokenExpiredException exception) {
-        return defaultHandler(exception, HttpStatus.BAD_REQUEST);
+    public ResponseEntity<RestErrorMessage> verificationTokenExpiredHandler(VerificationTokenExpiredException exception) {
+        return buildErrorResponse(exception, HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(ResetPasswordTokenNotFoundException.class)
-    private ResponseEntity<RestErrorMessage> resetPasswordTokenNotFoundHandler(ResetPasswordTokenNotFoundException exception) {
-        return defaultHandler(exception, HttpStatus.NOT_FOUND);
+    public ResponseEntity<RestErrorMessage> resetPasswordTokenNotFoundHandler(ResetPasswordTokenNotFoundException exception) {
+        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
     }
 
     @ExceptionHandler(ResetPasswordTokenExpiredException.class)
-    private ResponseEntity<RestErrorMessage> resetPasswordTokenExpiredHandler(ResetPasswordTokenNotFoundException exception) {
-        return defaultHandler(exception, HttpStatus.BAD_REQUEST);
+    public ResponseEntity<RestErrorMessage> resetPasswordTokenExpiredHandler(ResetPasswordTokenExpiredException exception) {
+        return buildErrorResponse(exception, HttpStatus.UNAUTHORIZED);
+    }
+
+    @ExceptionHandler(EmailSendException.class)
+    public ResponseEntity<RestErrorMessage> emailSendHandler(EmailSendException exception) {
+        return buildErrorResponse(exception, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
