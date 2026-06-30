@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(printenv*)",
+      "Bash(env)",
+      "Bash(env *)",
+      "Bash(echo $*)"
+    ]
+  }
+}
