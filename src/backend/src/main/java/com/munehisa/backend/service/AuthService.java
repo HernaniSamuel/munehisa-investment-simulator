@@ -110,23 +110,24 @@ public class AuthService {
         throw new InvalidCredentialsException();
     }
 
-    public ForgotPasswordResponseDTO forgotPassword(ForgotPasswordRequestDTO body) {
+    public Optional<ForgotPasswordResponseDTO> forgotPassword(ForgotPasswordRequestDTO body) {
         User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
 
-        if (user.getResetPasswordTokenExpiry() == null || user.getResetPasswordTokenExpiry().isBefore(Instant.now())) {
-            String resetPasswordToken = UUID.randomUUID().toString();
-            user.setResetPasswordToken(resetPasswordToken);
-            user.setResetPasswordTokenExpiry(Instant.now().plusMillis(resetPasswordTokenExpirationMs));
-            repository.save(user);
-
-            emailService.sendPasswordRecoverEmail(user.getEmail(), user.getResetPasswordToken());
-
-            return new ForgotPasswordResponseDTO("Reset password request accepted. Please look your email.", null);
-        } else {
-            return new ForgotPasswordResponseDTO(
+        if (user.getResetPasswordTokenExpiry() != null && user.getResetPasswordTokenExpiry().isAfter(Instant.now())) {
+            ForgotPasswordResponseDTO email_sent = new ForgotPasswordResponseDTO(
                     "A password-recover email has already been sent. Please wait until the current token expires before requesting a new one.",
                     user.getResetPasswordTokenExpiry());
+            return Optional.of(email_sent);
         }
+
+        String resetPasswordToken = UUID.randomUUID().toString();
+        user.setResetPasswordToken(resetPasswordToken);
+        user.setResetPasswordTokenExpiry(Instant.now().plusMillis(resetPasswordTokenExpirationMs));
+        repository.save(user);
+
+        emailService.sendPasswordRecoverEmail(user.getEmail(), user.getResetPasswordToken());
+
+        return Optional.empty();
     }
 
     public LoginResponseDTO resetPassword(ResetPasswordRequestDTO body) {

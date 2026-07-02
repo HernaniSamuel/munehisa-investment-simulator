@@ -31,14 +31,14 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
-    @PostMapping("/resend-email")
+    @PostMapping("/resend-verification")
     public ResponseEntity<ResendEmailResponseDTO> resendEmail(@Valid @RequestBody ResendEmailRequestDTO request) {
         Optional<ResendEmailResponseDTO> result = authService.resendEmail(request);
 
         return result.map(resendEmailResponseDTO -> ResponseEntity
                         .status(HttpStatus.TOO_MANY_REQUESTS)
                         .body(resendEmailResponseDTO))
-                .orElseGet(() -> ResponseEntity.accepted().build());
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/verify")
@@ -48,7 +48,12 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     public ResponseEntity<ForgotPasswordResponseDTO> forgotPassword(@Valid @RequestBody ForgotPasswordRequestDTO forgotPasswordRequest) {
-        return ResponseEntity.ok(authService.forgotPassword(forgotPasswordRequest));
+        Optional<ForgotPasswordResponseDTO> result = authService.forgotPassword(forgotPasswordRequest);
+
+        return result.map(forgotPasswordResponseDTO -> ResponseEntity
+                        .status(HttpStatus.TOO_MANY_REQUESTS)
+                        .body(forgotPasswordResponseDTO))
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PostMapping("/reset-password")

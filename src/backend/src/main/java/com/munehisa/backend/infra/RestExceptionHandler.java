@@ -37,22 +37,22 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(VerificationTokenNotFoundException.class)
     public ResponseEntity<RestErrorMessage> verificationTokenNotFoundHandler(VerificationTokenNotFoundException exception) {
-        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(VerificationTokenExpiredException.class)
     public ResponseEntity<RestErrorMessage> verificationTokenExpiredHandler(VerificationTokenExpiredException exception) {
-        return buildErrorResponse(exception, HttpStatus.UNAUTHORIZED);
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(ResetPasswordTokenNotFoundException.class)
     public ResponseEntity<RestErrorMessage> resetPasswordTokenNotFoundHandler(ResetPasswordTokenNotFoundException exception) {
-        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(ResetPasswordTokenExpiredException.class)
     public ResponseEntity<RestErrorMessage> resetPasswordTokenExpiredHandler(ResetPasswordTokenExpiredException exception) {
-        return buildErrorResponse(exception, HttpStatus.UNAUTHORIZED);
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(EmailSendException.class)
