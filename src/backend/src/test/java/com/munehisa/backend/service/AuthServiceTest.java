@@ -268,9 +268,9 @@ class AuthServiceTest {
         User user = buildUser();
         when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
 
-        ForgotPasswordResponseDTO response = authService.forgotPassword(body);
+        Optional<ForgotPasswordResponseDTO> result = authService.forgotPassword(body);
 
-        assertNull(response.resendAvailableAt());
+        assertTrue(result.isEmpty());
         assertNotNull(user.getResetPasswordToken());
         assertTrue(user.getResetPasswordTokenExpiry().isAfter(Instant.now()));
         verify(repository).save(user);
@@ -286,9 +286,10 @@ class AuthServiceTest {
         user.setResetPasswordTokenExpiry(expiry);
         when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
 
-        ForgotPasswordResponseDTO response = authService.forgotPassword(body);
+        Optional<ForgotPasswordResponseDTO> result = authService.forgotPassword(body);
 
-        assertEquals(expiry, response.resendAvailableAt());
+        assertTrue(result.isPresent());
+        assertEquals(expiry, result.get().resendAvailableAt());
         assertEquals("still-valid-token", user.getResetPasswordToken());
         verify(repository, never()).save(any());
         verifyNoInteractions(emailService);

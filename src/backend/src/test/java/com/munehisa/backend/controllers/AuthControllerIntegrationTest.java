@@ -160,9 +160,7 @@ class AuthControllerIntegrationTest {
     }
 
     @Test
-    void verify_expiredToken_returns401() throws Exception {
-        // Issue's AC lists 400 for this case; the current implementation maps
-        // VerificationTokenExpiredException to 401. Asserting real behavior.
+    void verify_expiredToken_returns400() throws Exception {
         createUser(user -> {
             user.setVerified(false);
             user.setVerificationToken("expired-token");
@@ -170,24 +168,19 @@ class AuthControllerIntegrationTest {
         });
 
         mockMvc.perform(get("/auth/verify").param("verificationToken", "expired-token"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void verify_unknownOrAlreadyUsedToken_returns404() throws Exception {
-        // Issue's AC lists 400; current implementation maps
-        // VerificationTokenNotFoundException to 404. Asserting real behavior.
+    void verify_unknownOrAlreadyUsedToken_returns400() throws Exception {
         mockMvc.perform(get("/auth/verify").param("verificationToken", "never-issued-token"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isBadRequest());
     }
 
-    // ---------- POST /auth/resend-email ----------
-    // Issue's AC refers to this endpoint as "/auth/resend-verification" with a
-    // 204 success status; the real path is "/auth/resend-email" and it
-    // returns 202 Accepted on success. Asserting real behavior.
+    // ---------- POST /auth/resend-verification ----------
 
     @Test
-    void resendEmail_expiredPreviousToken_returns202() throws Exception {
+    void resendEmail_expiredPreviousToken_returns204() throws Exception {
         createUser(user -> {
             user.setVerified(false);
             user.setVerificationToken("old-token");
@@ -195,10 +188,10 @@ class AuthControllerIntegrationTest {
         });
         ResendEmailRequestDTO body = new ResendEmailRequestDTO("ada@example.com");
 
-        mockMvc.perform(post("/auth/resend-email")
+        mockMvc.perform(post("/auth/resend-verification")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isAccepted());
+                .andExpect(status().isNoContent());
     }
 
     @Test
@@ -210,7 +203,7 @@ class AuthControllerIntegrationTest {
         });
         ResendEmailRequestDTO body = new ResendEmailRequestDTO("ada@example.com");
 
-        mockMvc.perform(post("/auth/resend-email")
+        mockMvc.perform(post("/auth/resend-verification")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isTooManyRequests())
@@ -218,23 +211,20 @@ class AuthControllerIntegrationTest {
     }
 
     // ---------- POST /auth/forgot-password ----------
-    // Issue's AC expects 204 (sent) / 429 (blocked); the real implementation
-    // returns 200 for both cases and only the response message differs.
 
     @Test
-    void forgotPassword_noPendingToken_returns200() throws Exception {
+    void forgotPassword_noPendingToken_returns204() throws Exception {
         createUser(user -> user.setVerified(true));
         ForgotPasswordRequestDTO body = new ForgotPasswordRequestDTO("ada@example.com");
 
         mockMvc.perform(post("/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resendAvailableAt").isEmpty());
+                .andExpect(status().isNoContent());
     }
 
     @Test
-    void forgotPassword_stillValidToken_returns200WithBlockedMessage() throws Exception {
+    void forgotPassword_stillValidToken_returns429() throws Exception {
         createUser(user -> {
             user.setVerified(true);
             user.setResetPasswordToken("still-valid-token");
@@ -245,7 +235,7 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(post("/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isOk())
+                .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.resendAvailableAt").isNotEmpty());
     }
 
@@ -267,9 +257,7 @@ class AuthControllerIntegrationTest {
     }
 
     @Test
-    void resetPassword_expiredToken_returns401() throws Exception {
-        // Issue's AC lists 400; current implementation maps
-        // ResetPasswordTokenExpiredException to 401. Asserting real behavior.
+    void resetPassword_expiredToken_returns400() throws Exception {
         createUser(user -> {
             user.setResetPasswordToken("expired-reset-token");
             user.setResetPasswordTokenExpiry(Instant.now().minusSeconds(60));
@@ -279,18 +267,16 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(post("/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void resetPassword_unknownOrAlreadyUsedToken_returns404() throws Exception {
-        // Issue's AC lists 400; current implementation maps
-        // ResetPasswordTokenNotFoundException to 404. Asserting real behavior.
+    void resetPassword_unknownOrAlreadyUsedToken_returns400() throws Exception {
         ResetPasswordRequestDTO body = new ResetPasswordRequestDTO("never-issued-token", "brand-new-password");
 
         mockMvc.perform(post("/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isBadRequest());
     }
 }
