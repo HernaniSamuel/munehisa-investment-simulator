@@ -37,11 +37,13 @@ This repository currently contains the backend (a frontend module is planned sep
 
 ### API docs (Swagger UI)
 
-Disabled by default in every environment. To enable it locally, set `SWAGGER_UI_ENABLED=true` in `src/backend/.env` before starting the app, then open:
+Enabled by default when running with the `dev` profile (the default), no extra configuration needed - just open:
 
 ```
 http://localhost:8000/swagger-ui.html
 ```
+
+It's disabled by default in any other profile (e.g. a future `prod` profile). Set `SWAGGER_UI_ENABLED=false` in `.env` to opt out even in dev.
 
 ### Running tests
 
