@@ -20,15 +20,15 @@ public class EmailService {
     @Value("${spring.mail.username}")
     private String from;
 
-    @Value("${app.base-url}")
-    private String baseUrl;
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     @Async
     public void sendVerificationEmail(String email, String verificationToken) {
         Context context = new Context();
         context.setVariable("subject", "Email Verification");
         context.setVariable("message", "Click the button below to verify your email address:");
-        context.setVariable("actionUrl", baseUrl + "/auth/verify?verificationToken=" + verificationToken);
+        context.setVariable("actionUrl", frontendUrl + "/verify-email?token=" + verificationToken);
 
         String content = templateEngine.process("email/auth-email", context);
         sendEmail(email, "Email Verification", content);
@@ -39,7 +39,7 @@ public class EmailService {
         Context context = new Context();
         context.setVariable("subject", "Password Reset Request");
         context.setVariable("message", "Click the button below to reset your password:");
-        context.setVariable("actionUrl", baseUrl + "/auth/reset-password?token=" + resetToken);
+        context.setVariable("actionUrl", frontendUrl + "/reset-password?token=" + resetToken);
 
         String content = templateEngine.process("email/auth-email", context);
         sendEmail(email, "Password Reset Request", content);

@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Zen Old Mincho", serif;
+  --font-sans: "Zen Kaku Gothic New", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-paper: #efe8da;
+  --color-panel: #e7dece;
+  --color-ink: #1b1611;
+  --color-name: #3a332a;
+  --color-muted: #7a705f;
+  --color-vermilion: #dd3a22;
+  --color-teal: #0c6156;
+  --color-on-verm: #efe8da;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* Washi grain overlay - see DESIGN.md "Texture & surface". Apply on an
+   absolutely-positioned element inset over the screen container. */
+.washi-texture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.45;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.26'/%3E%3C/svg%3E");
+}
