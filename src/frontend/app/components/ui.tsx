@@ -71,7 +71,10 @@ export function Banner({
       : "border-teal/30 bg-teal/10 text-teal";
 
   return (
-    <div className={`border px-4 py-3 font-sans text-sm ${toneClasses}`} role="status">
+    <div
+      className={`border px-4 py-3 font-sans text-sm ${toneClasses}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
       {children}
     </div>
   );

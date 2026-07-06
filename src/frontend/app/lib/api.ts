@@ -15,6 +15,15 @@ type RequestOptions = {
   token?: string;
 };
 
+// Set by AuthProvider so that any authenticated request whose token was
+// rejected triggers a client-side logout, not just the one call that
+// happened to notice.
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
+
 function extractErrorMessage(body: unknown, status: number): string {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
@@ -43,6 +52,16 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const data = isJson ? await response.json().catch(() => undefined) : undefined;
 
   if (!response.ok) {
+    // Only requests made on behalf of a logged-in user carry a token, so a
+    // 401/403 here means the backend rejected that session (expired/invalid
+    // JWT) rather than e.g. a bad login attempt (no token attached) or a
+    // pending-verification 403 from login/register (also no token attached).
+    // 403 matters because this backend has no custom AuthenticationEntryPoint,
+    // so Spring Security's fallback for a missing/invalid bearer token on a
+    // protected endpoint is 403, not 401.
+    if ((response.status === 401 || response.status === 403) && options.token) {
+      onUnauthorized?.();
+    }
     throw new ApiError(response.status, extractErrorMessage(data, response.status));
   }
 
@@ -82,5 +101,8 @@ export const authApi = {
       body: { resetPasswordToken, newPassword },
     }),
 
-  checkSession: (token: string) => request<string>("/user", { token }),
+  // GET /user returns text/plain; request() only parses JSON bodies, so this
+  // always resolves to undefined on success. Only success-vs-failure (via
+  // the thrown ApiError) is meaningful here.
+  checkSession: (token: string) => request<void>("/user", { token }),
 };

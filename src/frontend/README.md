@@ -68,7 +68,7 @@ This produces `build/client/`. Because GitHub Pages has no server-side rewrite r
 
 ## Docker
 
-A `Dockerfile` is provided for running the SSR-capable dev server output as a Node process (useful for local container testing); the GitHub Pages deploy above does not use it.
+A `Dockerfile` is provided for serving the static SPA build (`build/client`) via `serve` in a container (useful for local testing); the GitHub Pages deploy above does not use it.
 
 ```
 docker build -t munehisa-frontend .
