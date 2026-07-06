@@ -30,6 +30,10 @@ function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
+    // A 401/403 here is already handled globally (api.ts's unauthorized
+    // handler logs out and ProtectedRoute redirects away before this state
+    // would ever paint) - "failed" in practice means a network/server
+    // error, not a rejected session.
     authApi
       .checkSession(user.token)
       .then(() => setSessionStatus("ok"))
@@ -78,7 +82,7 @@ function Dashboard() {
             <p className="mt-1 font-mono text-sm text-ink">
               {sessionStatus === "checking" && "Checking session against the API…"}
               {sessionStatus === "ok" && "GET /user → 200 (JWT accepted)"}
-              {sessionStatus === "failed" && "GET /user failed - session may be invalid"}
+              {sessionStatus === "failed" && "GET /user failed - network or server error"}
             </p>
           </div>
         </div>
