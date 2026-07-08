@@ -26,6 +26,7 @@ public class UserService {
 
     public void deleteUserAccount(DeleteAccountRequestDTO deleteAccountRequest, User user) {
         if (passwordEncoder.matches(deleteAccountRequest.password(), user.getPassword())) {
+            // TODO: cascade-delete Simulation/Holding records once that domain exists (tracked in a follow-up issue)
             userRepository.delete(user);
         } else {
             throw new InvalidCredentialsException();
