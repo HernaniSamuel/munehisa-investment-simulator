@@ -1,29 +1,12 @@
 package com.munehisa.backend.controllers;
 
-import com.munehisa.backend.domain.user.User;
 import com.munehisa.backend.dto.*;
-import com.munehisa.backend.repository.UserRepository;
-import com.munehisa.backend.service.EmailService;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
-import java.util.function.Consumer;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -38,43 +21,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * started for this whole test class (not one per test method), matching the
  * "per test class" note in the issue.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@Testcontainers
+
 @Tag("integration")
-class AuthControllerIntegrationTest {
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
-
-    @MockitoBean
-    private EmailService emailService;
-
-    @Autowired
-    private MockMvc mockMvc;
-    @Autowired
-    private JsonMapper objectMapper;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @BeforeEach
-    void cleanDatabase() {
-        userRepository.deleteAll();
-    }
-
-    private User createUser(Consumer<User> customizer) {
-        User user = new User();
-        user.setName("Ada Lovelace");
-        user.setEmail("ada@example.com");
-        user.setPassword(passwordEncoder.encode("correct-password"));
-        user.setVerified(true);
-        customizer.accept(user);
-        return userRepository.save(user);
-    }
+class AuthControllerIntegrationTest extends IntegrationTestBase {
 
     // ---------- POST /auth/register ----------
 
