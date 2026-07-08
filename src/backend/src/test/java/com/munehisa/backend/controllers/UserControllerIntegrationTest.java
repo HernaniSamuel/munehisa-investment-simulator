@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Tag("integration")
@@ -28,8 +29,8 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isOk());
-        // .andExpect(jsonPath("$.name").value("New Name"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("New Name"));
     }
 
     @Test
@@ -48,9 +49,6 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
 
     @Test
     void updateName_invalidRequestWithoutToken_returns401() throws Exception {
-        User user = createUser(u -> {
-        });
-        String token = tokenService.generateToken(user);
         UpdateNameRequestDTO body = new UpdateNameRequestDTO("");
 
         mockMvc.perform(patch("/user")
