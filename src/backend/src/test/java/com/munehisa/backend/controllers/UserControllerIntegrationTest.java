@@ -1,6 +1,7 @@
 package com.munehisa.backend.controllers;
 
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.DeleteAccountRequestDTO;
 import com.munehisa.backend.dto.UpdateNameRequestDTO;
 import com.munehisa.backend.infra.security.TokenService;
 import org.junit.jupiter.api.Tag;
@@ -8,7 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,6 +55,81 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
         UpdateNameRequestDTO body = new UpdateNameRequestDTO("");
 
         mockMvc.perform(patch("/user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAccount_wrongPassword_returns401() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("wrong-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAccount_correctPassword_returns204() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("correct-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void deleteAccount_thenReuseToken_returns401OnProtectedRoute() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("correct-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/user").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAccount_withoutToken_returns401() throws Exception {
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("correct-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAccount_secondDeleteWithSameToken_returns401() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("correct-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isUnauthorized());
