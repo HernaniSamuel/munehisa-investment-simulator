@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { isTokenExpired } from "./jwt";
+import { getEmailFromToken, isTokenExpired } from "./jwt";
 import { setUnauthorizedHandler } from "./api";
 
 const STORAGE_KEY = "munehisa.auth";
@@ -12,6 +12,9 @@ type AuthUser = { name: string; token: string };
 
 type AuthContextValue = {
   user: AuthUser | null;
+  // Derived from the JWT's `sub` claim - login/session responses never
+  // return the email directly, so this is the only place to read it.
+  email: string | null;
   initialized: boolean;
   login: (user: AuthUser) => void;
   logout: () => void;
@@ -68,8 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [user, logout]);
 
+  const email = user ? getEmailFromToken(user.token) : null;
+
   return (
-    <AuthContext.Provider value={{ user, initialized, login, logout }}>
+    <AuthContext.Provider value={{ user, email, initialized, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

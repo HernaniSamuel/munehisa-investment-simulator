@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTokenExpired } from "./jwt";
+import { getEmailFromToken, isTokenExpired } from "./jwt";
 
 function makeToken(payload: Record<string, unknown>): string {
   const base64url = (obj: object) =>
@@ -35,5 +35,21 @@ describe("isTokenExpired", () => {
   it("returns false when the payload has no exp claim", () => {
     const token = makeToken({ sub: "user@example.com" });
     expect(isTokenExpired(token)).toBe(false);
+  });
+});
+
+describe("getEmailFromToken", () => {
+  it("returns the sub claim", () => {
+    const token = makeToken({ sub: "user@example.com" });
+    expect(getEmailFromToken(token)).toBe("user@example.com");
+  });
+
+  it("returns null for a malformed token", () => {
+    expect(getEmailFromToken("not-a-jwt")).toBeNull();
+  });
+
+  it("returns null when the payload has no sub claim", () => {
+    const token = makeToken({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    expect(getEmailFromToken(token)).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ export class ApiError extends Error {
 }
 
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   body?: unknown;
   token?: string;
 };
@@ -105,4 +105,14 @@ export const authApi = {
   // always resolves to undefined on success. Only success-vs-failure (via
   // the thrown ApiError) is meaningful here.
   checkSession: (token: string) => request<void>("/user", { token }),
+};
+
+export type UpdateNameResponse = { name: string };
+
+export const userApi = {
+  updateName: (name: string, token: string) =>
+    request<UpdateNameResponse>("/user", { method: "PATCH", body: { name }, token }),
+
+  deleteAccount: (password: string, token: string) =>
+    request<void>("/user/delete", { method: "POST", body: { password }, token }),
 };
