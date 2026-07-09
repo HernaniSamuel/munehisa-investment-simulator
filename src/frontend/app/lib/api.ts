@@ -10,9 +10,16 @@ export class ApiError extends Error {
 }
 
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   body?: unknown;
   token?: string;
+  // Most authenticated endpoints only ever return 401/403 for a
+  // rejected/expired session, so request() treats that as a global logout
+  // signal by default. A few endpoints (e.g. delete-account) can also return
+  // 401 for a business-logic reason (wrong password) using the same status
+  // code as an invalid token - set this to opt out of the global-logout side
+  // effect for those, and let the caller's own catch block handle the error.
+  skipUnauthorizedHandling?: boolean;
 };
 
 // Set by AuthProvider so that any authenticated request whose token was
@@ -59,7 +66,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     // 403 matters because this backend has no custom AuthenticationEntryPoint,
     // so Spring Security's fallback for a missing/invalid bearer token on a
     // protected endpoint is 403, not 401.
-    if ((response.status === 401 || response.status === 403) && options.token) {
+    if (
+      (response.status === 401 || response.status === 403) &&
+      options.token &&
+      !options.skipUnauthorizedHandling
+    ) {
       onUnauthorized?.();
     }
     throw new ApiError(response.status, extractErrorMessage(data, response.status));
@@ -105,4 +116,23 @@ export const authApi = {
   // always resolves to undefined on success. Only success-vs-failure (via
   // the thrown ApiError) is meaningful here.
   checkSession: (token: string) => request<void>("/user", { token }),
+};
+
+export type UpdateNameResponse = { name: string };
+
+export const userApi = {
+  updateName: (name: string, token: string) =>
+    request<UpdateNameResponse>("/user", { method: "PATCH", body: { name }, token }),
+
+  // Wrong password is a 401 from this endpoint, same status code Spring
+  // Security's entry point uses for an invalid/expired token - skip the
+  // global-logout side effect so the caller can show it as an inline error
+  // instead of the whole app bouncing to /login mid-modal.
+  deleteAccount: (password: string, token: string) =>
+    request<void>("/user/delete", {
+      method: "POST",
+      body: { password },
+      token,
+      skipUnauthorizedHandling: true,
+    }),
 };

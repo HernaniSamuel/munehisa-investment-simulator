@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/home";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
-import { Button } from "~/components/ui";
+import { Button, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { useAuth } from "~/lib/auth-context";
 import { authApi } from "~/lib/api";
 
@@ -61,9 +61,14 @@ function Dashboard() {
               </p>
             </div>
           </div>
-          <Button variant="ink" onClick={handleLogout}>
-            Log out
-          </Button>
+          <div className="flex items-center gap-3">
+            <Link to="/settings" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
+              Settings
+            </Link>
+            <Button variant="ink" onClick={handleLogout}>
+              Log out
+            </Button>
+          </div>
         </header>
 
         <div className="border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">

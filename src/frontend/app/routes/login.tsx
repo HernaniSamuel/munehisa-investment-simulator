@@ -110,7 +110,7 @@ export default function Login() {
           type="button"
           onClick={handleResend}
           disabled={resending}
-          className="font-mono text-[11px] text-teal underline underline-offset-2 disabled:opacity-50"
+          className="font-mono text-[11px] text-teal underline underline-offset-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
         >
           {resending ? "Resending verification email…" : "Resend verification email"}
         </button>

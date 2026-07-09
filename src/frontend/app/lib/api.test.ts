@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, authApi, setUnauthorizedHandler } from "./api";
+import { ApiError, authApi, setUnauthorizedHandler, userApi } from "./api";
 
 function mockFetchOnce(status: number, body?: unknown, contentType = "application/json") {
   const response = {
@@ -114,6 +114,56 @@ describe("api request/error parsing", () => {
     await expect(
       authApi.login({ email: "a@b.com", password: "x" })
     ).rejects.toBeInstanceOf(ApiError);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("sends a PATCH request with the token for updateName", async () => {
+    mockFetchOnce(200, { name: "New Name" });
+    await userApi.updateName("New Name", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/user");
+    expect((init as RequestInit).method).toBe("PATCH");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ name: "New Name" });
+  });
+
+  it("rejects with a 400 ApiError when updateName is given a blank name", async () => {
+    mockFetchOnce(400, { status: "BAD_REQUEST", message: "name: must not be blank" });
+    await expect(userApi.updateName("", "my-jwt")).rejects.toMatchObject({
+      status: 400,
+      message: "name: must not be blank",
+    });
+  });
+
+  it("sends a POST request with the token and password for deleteAccount", async () => {
+    mockFetchOnce(204);
+    await userApi.deleteAccount("hunter2", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/user/delete");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ password: "hunter2" });
+  });
+
+  it("rejects with a 401 ApiError when deleteAccount is given the wrong password", async () => {
+    mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
+    await expect(userApi.deleteAccount("wrong", "my-jwt")).rejects.toMatchObject({
+      status: 401,
+      message: "Invalid Credentials",
+    });
+  });
+
+  it("does not trigger the unauthorized handler when deleteAccount gets the wrong password", async () => {
+    // Regression: /user/delete reuses 401 for "wrong password", the same
+    // status code used for a rejected session elsewhere. Without
+    // skipUnauthorizedHandling this used to fire the global logout and bounce
+    // the user out of the still-open delete modal instead of showing the
+    // inline error.
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
+    await expect(userApi.deleteAccount("wrong", "my-jwt")).rejects.toBeInstanceOf(ApiError);
     expect(handler).not.toHaveBeenCalled();
   });
 });
