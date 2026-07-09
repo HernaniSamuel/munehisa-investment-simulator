@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/settings";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
@@ -167,6 +167,7 @@ function DeleteAccountSection() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   function openModal() {
     setPassword("");
@@ -178,6 +179,20 @@ function DeleteAccountSection() {
     if (submitting) return;
     setModalOpen(false);
   }
+
+  useEffect(() => {
+    if (modalOpen) passwordInputRef.current?.focus();
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeModal();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen, submitting]);
 
   async function handleConfirm(event: FormEvent) {
     event.preventDefault();
@@ -213,6 +228,9 @@ function DeleteAccountSection() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-account-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeModal();
+          }}
         >
           <form
             onSubmit={handleConfirm}
@@ -233,6 +251,7 @@ function DeleteAccountSection() {
 
             <div className="mt-4">
               <TextField
+                ref={passwordInputRef}
                 id="delete-password"
                 label="Password"
                 type="password"

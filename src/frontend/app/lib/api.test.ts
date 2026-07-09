@@ -153,4 +153,17 @@ describe("api request/error parsing", () => {
       message: "Invalid Credentials",
     });
   });
+
+  it("does not trigger the unauthorized handler when deleteAccount gets the wrong password", async () => {
+    // Regression: /user/delete reuses 401 for "wrong password", the same
+    // status code used for a rejected session elsewhere. Without
+    // skipUnauthorizedHandling this used to fire the global logout and bounce
+    // the user out of the still-open delete modal instead of showing the
+    // inline error.
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
+    await expect(userApi.deleteAccount("wrong", "my-jwt")).rejects.toBeInstanceOf(ApiError);
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
