@@ -16,7 +16,7 @@ export const buttonVariantClasses: Record<ButtonVariant, string> = {
 };
 
 export const buttonBaseClasses =
-  "font-mono text-[11px] uppercase tracking-[.1em] px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-50 inline-block text-center";
+  "font-mono text-[11px] uppercase tracking-[.1em] px-5 py-3 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 inline-block text-center";
 
 export const Button = forwardRef<
   HTMLButtonElement,
@@ -65,10 +65,13 @@ export function Banner({
   tone?: "error" | "success";
   children: ReactNode;
 }) {
+  // "success" deliberately avoids teal: teal is defined as FALL/negative in
+  // the financial UI (see DESIGN.md's rise/fall color rule), so using it here
+  // would make the same token mean opposite things across the app.
   const toneClasses =
     tone === "error"
       ? "border-vermilion/30 bg-vermilion/10 text-vermilion"
-      : "border-teal/30 bg-teal/10 text-teal";
+      : "border-ink/20 bg-ink/5 text-ink";
 
   return (
     <div
