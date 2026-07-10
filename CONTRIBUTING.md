@@ -21,11 +21,16 @@ Examples from this repo's history:
 
 ```
 feat/16-user-settings-screen
-fix/15-delete-account-endpoint
+feat/15-delete-account-endpoint
 chore/8-setup-ci-pipeline
 docs/5-openapi-readme
 test/6-auth-module-testing
+refactor/2-auth-module-review
 ```
+
+No PR has been merged from a `fix/*` branch yet — `fix` commits so far have landed as review-round
+fixes inside a `feat`/`chore`/`test` branch rather than as their own standalone branch. `fix/*` is
+still a valid branch type for a change that's purely a bug fix from the start.
 
 ## Commit message format
 
