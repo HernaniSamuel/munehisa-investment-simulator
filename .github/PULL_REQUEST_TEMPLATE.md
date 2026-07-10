@@ -1,5 +1,5 @@
 ## Summary
-<!-- O que esse PR faz, em 1-2 frases. Foque no "o quê" e "por quê", não no "como". -->
+<!-- What this PR does, in 1-2 sentences. Focus on the "what" and "why", not the "how". -->
 
 
 
@@ -7,13 +7,13 @@
 Closes #
 
 ## Changes
-<!-- Lista objetiva das principais mudanças -->
+<!-- Objective list of the main changes -->
 -
 -
 -
 
 ## How to test
-<!-- Passo a passo pra alguém validar localmente -->
+<!-- Step-by-step for someone to validate this locally -->
 1.
 2.
 3.
@@ -27,4 +27,4 @@ Closes #
 - [ ] No unrelated changes mixed into this PR
 
 ## Notes for reviewer
-<!-- Algo que merece atenção especial, decisão de design, trade-off, ou dúvida em aberto -->
+<!-- Anything that deserves special attention, a design decision, a trade-off, or an open question -->

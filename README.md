@@ -68,3 +68,10 @@ infra/         Cross-cutting config: security (JWT filter, Spring Security), COR
 ```
 
 Request flow: `Controller → Service → Repository`. Business rules and validation live in the service layer, which is covered by pure Mockito unit tests; `Controller` + `Repository` behavior is covered by Testcontainers-backed integration tests that run against a real PostgreSQL instance.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message format, PR/review flow,
+and merge strategy. Issues use the template at
+[.github/ISSUE_TEMPLATE.md](.github/ISSUE_TEMPLATE.md); PRs use the template at
+[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
