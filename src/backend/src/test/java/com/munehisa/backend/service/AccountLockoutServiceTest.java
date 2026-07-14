@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -76,25 +77,37 @@ public class AccountLockoutServiceTest {
     @Test
     void checkPassword_wrongPasswordBelowThreshold_returnsFalseAndIncrementsCounter() {
         User user = buildUser();
+        User refreshedUser = buildUser();
+        refreshedUser.setId(user.getId());
+        refreshedUser.setFailedLoginAttempts(1); // como o banco "veria" depois do incremento atômico
+
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
         when(passwordEncoder.matches(login.password(), user.getPassword())).thenReturn(false);
-        accountLockoutService.checkPassword(user, login.password());
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(refreshedUser));
 
-        assertEquals(1, user.getFailedLoginAttempts());
+        boolean result = accountLockoutService.checkPassword(user, login.password());
+
+        assertFalse(result);
+        verify(userRepository).incrementFailedAttempts(user.getId());
+        verify(userRepository, never()).save(any());
     }
 
+
     @Test
-    void checkPassword_wrongPasswordReachesThreshold_locksAccountAndThrows() {
+    void checkPassword_wrongPasswordReachesThreshold_locksAccountAndThrows() throws Exception {
         User user = buildUser();
-        user.setFailedLoginAttempts(4);
+        User refreshedUser = buildUser();
+        refreshedUser.setId(user.getId());
+        refreshedUser.setFailedLoginAttempts(5); // já bateu o MAX_ATTEMPTS depois do incremento atômico
 
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
         when(passwordEncoder.matches(login.password(), user.getPassword())).thenReturn(false);
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(refreshedUser));
 
         assertThrows(AccountLockedException.class, () -> accountLockoutService.checkPassword(user, login.password()));
-        assertTrue(user.getLockedUntil().isAfter(Instant.now()));
+        assertTrue(refreshedUser.getLockedUntil().isAfter(Instant.now()));
     }
 
     @Test
@@ -115,12 +128,19 @@ public class AccountLockoutServiceTest {
         User user = buildUser();
         user.setLockedUntil(Instant.now().minusSeconds(1));
 
+        User refreshedUser = buildUser();
+        refreshedUser.setId(user.getId());
+        refreshedUser.setFailedLoginAttempts(1); // como o banco veria essa conta logo após o incremento
+
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
         when(passwordEncoder.matches(login.password(), user.getPassword())).thenReturn(false);
-        accountLockoutService.checkPassword(user, login.password());
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(refreshedUser));
 
-        assertNull(user.getLockedUntil());
-        assertEquals(1, user.getFailedLoginAttempts());
+        boolean result = accountLockoutService.checkPassword(user, login.password());
+
+        assertFalse(result);
+        assertNull(user.getLockedUntil()); // resetado pelo ramo de expiração, que ainda muta o objeto original
+        verify(userRepository).incrementFailedAttempts(user.getId());
     }
 }

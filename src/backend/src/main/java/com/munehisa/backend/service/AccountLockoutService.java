@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -22,13 +23,13 @@ public class AccountLockoutService {
     @Value("${login.lockout.lock-time}")
     private long accountLockTime;
 
+    @Transactional
     public boolean checkPassword(User user, String password) {
         // First, check if the account is locked and if it should be unlocked
         if (user.getLockedUntil() != null) {
             if (user.getLockedUntil().isAfter(Instant.now())) {
                 throw new AccountLockedException(user.getLockedUntil());
-            }
-            if (user.getLockedUntil().isBefore(Instant.now())) {
+            } else {
                 user.setLockedUntil(null);
                 user.setFailedLoginAttempts(0);
                 userRepository.save(user);
@@ -40,26 +41,22 @@ public class AccountLockoutService {
 
         // if password is wrong, increment FailedLoginAttempts and check if should lock account
         if (!checkPasswordResult) {
-            user.setFailedLoginAttempts(user.getFailedLoginAttempts() + 1);
-            userRepository.save(user);
+            userRepository.incrementFailedAttempts(user.getId());
+            User refreshedUser = userRepository.findById(user.getId()).orElseThrow();
 
-            if (user.getFailedLoginAttempts() >= loginMaxFailedAttempts) {
-                user.setLockedUntil(Instant.now().plusMillis(accountLockTime));
-                userRepository.save(user);
-                throw new AccountLockedException(user.getLockedUntil());
+            if (refreshedUser.getFailedLoginAttempts() >= loginMaxFailedAttempts) {
+                refreshedUser.setLockedUntil(Instant.now().plusMillis(accountLockTime));
+                userRepository.save(refreshedUser);
+                throw new AccountLockedException(refreshedUser.getLockedUntil());
             }
 
             return false;
         }
 
-        // At this point of the code, the password is already verified and correct
-        if (user.getLockedUntil() == null) {
-            user.setFailedLoginAttempts(0);
-            userRepository.save(user);
-            return true;
-        }
-
-        // return false by default for safety reasons
-        return false;
+        // At this point, password is verified correct and the lock check above
+        // guarantees lockedUntil is null (either it always was, or it was just cleared)
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
+        return true;
     }
 }
