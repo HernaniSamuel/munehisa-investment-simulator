@@ -2,6 +2,7 @@ package com.munehisa.backend.service;
 
 import com.munehisa.backend.domain.user.User;
 import com.munehisa.backend.exceptions.AccountLockedException;
+import com.munehisa.backend.exceptions.InvalidCredentialsException;
 import com.munehisa.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,7 +24,7 @@ public class AccountLockoutService {
     @Value("${login.lockout.lock-time}")
     private long accountLockTime;
 
-    @Transactional
+    @Transactional(noRollbackFor = AccountLockedException.class)
     public boolean checkPassword(User user, String password) {
         // First, check if the account is locked and if it should be unlocked
         if (user.getLockedUntil() != null) {
@@ -42,7 +43,8 @@ public class AccountLockoutService {
         // if password is wrong, increment FailedLoginAttempts and check if should lock account
         if (!checkPasswordResult) {
             userRepository.incrementFailedAttempts(user.getId());
-            User refreshedUser = userRepository.findById(user.getId()).orElseThrow();
+            User refreshedUser = userRepository.findById(user.getId())
+                    .orElseThrow(InvalidCredentialsException::new);
 
             if (refreshedUser.getFailedLoginAttempts() >= loginMaxFailedAttempts) {
                 refreshedUser.setLockedUntil(Instant.now().plusMillis(accountLockTime));

@@ -79,7 +79,7 @@ public class AccountLockoutServiceTest {
         User user = buildUser();
         User refreshedUser = buildUser();
         refreshedUser.setId(user.getId());
-        refreshedUser.setFailedLoginAttempts(1); // como o banco "veria" depois do incremento atômico
+        refreshedUser.setFailedLoginAttempts(1); // how the DB would see this account after the atomic increment
 
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
@@ -99,7 +99,7 @@ public class AccountLockoutServiceTest {
         User user = buildUser();
         User refreshedUser = buildUser();
         refreshedUser.setId(user.getId());
-        refreshedUser.setFailedLoginAttempts(5); // já bateu o MAX_ATTEMPTS depois do incremento atômico
+        refreshedUser.setFailedLoginAttempts(5); // already hit MAX_ATTEMPTS after the atomic increment
 
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
@@ -130,7 +130,7 @@ public class AccountLockoutServiceTest {
 
         User refreshedUser = buildUser();
         refreshedUser.setId(user.getId());
-        refreshedUser.setFailedLoginAttempts(1); // como o banco veria essa conta logo após o incremento
+        refreshedUser.setFailedLoginAttempts(1); // how the DB would see this account right after the increment
 
         LoginRequestDTO login = new LoginRequestDTO("ada@example.com", "hashed-password");
 
@@ -140,7 +140,7 @@ public class AccountLockoutServiceTest {
         boolean result = accountLockoutService.checkPassword(user, login.password());
 
         assertFalse(result);
-        assertNull(user.getLockedUntil()); // resetado pelo ramo de expiração, que ainda muta o objeto original
+        assertNull(user.getLockedUntil()); // reset by the expiry branch, which still mutates the original object
         verify(userRepository).incrementFailedAttempts(user.getId());
     }
 }
