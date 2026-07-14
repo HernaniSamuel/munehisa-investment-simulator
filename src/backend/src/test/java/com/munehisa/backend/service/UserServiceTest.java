@@ -11,7 +11,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -29,7 +28,7 @@ public class UserServiceTest {
     private UserService userService;
 
     @Mock
-    private PasswordEncoder passwordEncoder;
+    private AccountLockoutService accountLockoutService;
 
     private User buildUser() {
         User user = new User();
@@ -57,7 +56,7 @@ public class UserServiceTest {
         User user = new User();
         user.setPassword("hashed-password");
         DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("correct-password");
-        when(passwordEncoder.matches("correct-password", "hashed-password")).thenReturn(true);
+        when(accountLockoutService.checkPassword(user, body.password())).thenReturn(true);
 
         userService.deleteUserAccount(body, user);
 
@@ -69,7 +68,7 @@ public class UserServiceTest {
         User user = new User();
         user.setPassword("hashed-password");
         DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("wrong-password");
-        when(passwordEncoder.matches("wrong-password", "hashed-password")).thenReturn(false);
+        when(accountLockoutService.checkPassword(user, body.password())).thenReturn(false);
 
         assertThrows(InvalidCredentialsException.class, () -> userService.deleteUserAccount(body, user));
         verify(userRepository, never()).delete(any());

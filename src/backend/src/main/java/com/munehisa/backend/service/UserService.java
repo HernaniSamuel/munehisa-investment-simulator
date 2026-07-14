@@ -12,11 +12,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 
-@AllArgsConstructor
 @Service
+@AllArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AccountLockoutService accountLockoutService;
 
     public UpdateNameResponseDTO updateName(UpdateNameRequestDTO updateNameRequest, User user) {
         user.setName(updateNameRequest.name());
@@ -25,7 +26,7 @@ public class UserService {
     }
 
     public void deleteUserAccount(DeleteAccountRequestDTO deleteAccountRequest, User user) {
-        if (passwordEncoder.matches(deleteAccountRequest.password(), user.getPassword())) {
+        if (accountLockoutService.checkPassword(user, deleteAccountRequest.password())) {
             // TODO: cascade-delete Simulation/Holding records once that domain exists (tracked in a follow-up issue)
             userRepository.delete(user);
         } else {

@@ -230,4 +230,22 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void login_accountLocked_returns429() throws Exception {
+        createUser(user -> {
+            user.setName("Ada Lovelace");
+            user.setEmail("adalovelace@test.com");
+            user.setPassword("password");
+            user.setVerified(true);
+            user.setLockedUntil(Instant.now().plusSeconds(600));
+        });
+        LoginRequestDTO body = new LoginRequestDTO("adalovelace@test.com", "password");
+
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isTooManyRequests()) // 429
+                .andExpect(jsonPath("$.lockedUntil").isNotEmpty());
+    }
 }

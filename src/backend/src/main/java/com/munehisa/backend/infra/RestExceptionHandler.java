@@ -1,5 +1,6 @@
 package com.munehisa.backend.infra;
 
+import com.munehisa.backend.dto.AccountLockedResponseDTO;
 import com.munehisa.backend.exceptions.*;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpHeaders;
@@ -67,6 +68,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<RestErrorMessage> emailSendHandler(EmailSendException exception) {
         return buildErrorResponse(exception, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<AccountLockedResponseDTO> accountLockedHandler(AccountLockedException exception) {
+        AccountLockedResponseDTO body = new AccountLockedResponseDTO(
+                exception.getMessage(),
+                exception.getLockedUntil()
+        );
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);
+    }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(

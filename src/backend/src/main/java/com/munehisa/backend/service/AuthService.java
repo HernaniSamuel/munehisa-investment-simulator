@@ -25,6 +25,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final EmailService emailService;
+    private final AccountLockoutService accountLockoutService;
 
     @Value("${verification.token.expiration}")
     private long verificationTokenExpirationMs;
@@ -99,7 +100,7 @@ public class AuthService {
 
     public LoginResponseDTO login(LoginRequestDTO body) {
         User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
-        if (passwordEncoder.matches(body.password(), user.getPassword())) {
+        if (accountLockoutService.checkPassword(user, body.password())) {
             if (!user.isVerified()) {
                 throw new EmailPendingVerificationException();
             } else {
@@ -141,6 +142,8 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(body.newPassword()));
         user.setResetPasswordToken(null);
         user.setResetPasswordTokenExpiry(null);
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
         repository.save(user);
 
         String token = tokenService.generateToken(user);

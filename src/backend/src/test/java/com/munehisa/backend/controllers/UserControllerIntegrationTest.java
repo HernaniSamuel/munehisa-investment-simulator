@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.time.Instant;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -133,5 +135,19 @@ class UserControllerIntegrationTest extends IntegrationTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAccount_accountLocked_returns429() throws Exception {
+        User user = createUser(u -> u.setLockedUntil(Instant.now().plusSeconds(60)));
+        String token = tokenService.generateToken(user);
+        DeleteAccountRequestDTO body = new DeleteAccountRequestDTO("wrong-password");
+
+        mockMvc.perform(post("/user/delete")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.lockedUntil").isNotEmpty());
     }
 }

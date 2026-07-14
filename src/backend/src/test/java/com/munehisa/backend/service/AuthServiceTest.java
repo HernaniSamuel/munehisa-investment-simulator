@@ -41,6 +41,8 @@ class AuthServiceTest {
     private TokenService tokenService;
     @Mock
     private EmailService emailService;
+    @Mock
+    private AccountLockoutService accountLockoutService;
 
     @InjectMocks
     private AuthService authService;
@@ -123,7 +125,7 @@ class AuthServiceTest {
         LoginRequestDTO body = new LoginRequestDTO("ada@example.com", "plain-password");
         User user = buildUser();
         when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches(body.password(), user.getPassword())).thenReturn(true);
+        when(accountLockoutService.checkPassword(user, body.password())).thenReturn(true);
         when(tokenService.generateToken(user)).thenReturn("jwt-token");
 
         LoginResponseDTO response = authService.login(body);
@@ -145,7 +147,7 @@ class AuthServiceTest {
         LoginRequestDTO body = new LoginRequestDTO("ada@example.com", "wrong-password");
         User user = buildUser();
         when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches(body.password(), user.getPassword())).thenReturn(false);
+        when(accountLockoutService.checkPassword(user, body.password())).thenReturn(false);
 
         assertThrows(InvalidCredentialsException.class, () -> authService.login(body));
         verify(tokenService, never()).generateToken(any());
@@ -157,7 +159,7 @@ class AuthServiceTest {
         User user = buildUser();
         user.setVerified(false);
         when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches(body.password(), user.getPassword())).thenReturn(true);
+        when(accountLockoutService.checkPassword(user, body.password())).thenReturn(true);
 
         assertThrows(EmailPendingVerificationException.class, () -> authService.login(body));
     }
@@ -344,5 +346,36 @@ class AuthServiceTest {
         when(repository.findByResetPasswordToken("used-reset-token")).thenReturn(Optional.empty());
 
         assertThrows(ResetPasswordTokenNotFoundException.class, () -> authService.resetPassword(body));
+    }
+
+    @Test
+    void login_accountLocked_propagatesException() {
+        LoginRequestDTO body = new LoginRequestDTO("ada@example.com", "any-password");
+        User user = buildUser();
+        Instant lockedUntil = Instant.now().plusSeconds(60);
+        when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
+        when(accountLockoutService.checkPassword(user, body.password())).thenThrow(new AccountLockedException(lockedUntil));
+
+        assertThrows(AccountLockedException.class, () -> authService.login(body));
+        verify(tokenService, never()).generateToken(any());
+    }
+
+    @Test
+    void resetPassword_accountLocked_resetsFailedAttemptsAndUnlocksAccount() {
+        User user = buildUser();
+        user.setLockedUntil(Instant.now().plusMillis(900000));
+        user.setFailedLoginAttempts(5);
+        user.setResetPasswordToken("some-reset-token");
+        user.setResetPasswordTokenExpiry(Instant.now().plusSeconds(60));
+
+        when(repository.findByResetPasswordToken("some-reset-token")).thenReturn(Optional.of(user));
+        when(passwordEncoder.encode("new password")).thenReturn("new-hashed-password");
+        when(tokenService.generateToken(user)).thenReturn("jwt-token");
+
+        ResetPasswordRequestDTO body = new ResetPasswordRequestDTO("some-reset-token", "new password");
+        authService.resetPassword(body);
+
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
     }
 }
