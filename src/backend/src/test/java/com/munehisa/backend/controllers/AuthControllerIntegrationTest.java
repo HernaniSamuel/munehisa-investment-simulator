@@ -230,4 +230,50 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void login_accountLocked_returns429() throws Exception {
+        createUser(user -> {
+            user.setName("Ada Lovelace");
+            user.setEmail("adalovelace@test.com");
+            user.setPassword("password");
+            user.setVerified(true);
+            user.setLockedUntil(Instant.now().plusSeconds(600));
+        });
+        LoginRequestDTO body = new LoginRequestDTO("adalovelace@test.com", "password");
+
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isTooManyRequests()) // 429
+                .andExpect(jsonPath("$.lockedUntil").isNotEmpty());
+    }
+
+    @Test
+    void login_fiveWrongPasswords_locksAccountDurably() throws Exception {
+        // matches login.lockout.max-attempts=5 in application-test.properties
+        createUser(user -> {});
+        LoginRequestDTO wrongBody = new LoginRequestDTO("ada@example.com", "wrong-password");
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(post("/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(wrongBody)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 5th wrong attempt crosses the threshold and should trigger the lock
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(wrongBody)))
+                .andExpect(status().isTooManyRequests());
+
+        // the lock must be durably persisted, not rolled back: even the
+        // correct password now gets 429 instead of a successful login
+        LoginRequestDTO correctBody = new LoginRequestDTO("ada@example.com", "correct-password");
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(correctBody)))
+                .andExpect(status().isTooManyRequests());
+    }
 }

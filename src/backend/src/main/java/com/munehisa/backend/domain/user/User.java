@@ -31,4 +31,7 @@ public class User {
     private Instant verificationTokenExpiry;
 
     private boolean isVerified;
+
+    private int failedLoginAttempts;
+    private Instant lockedUntil;
 }
