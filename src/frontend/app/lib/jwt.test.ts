@@ -52,4 +52,9 @@ describe("getEmailFromToken", () => {
     const token = makeToken({ exp: Math.floor(Date.now() / 1000) + 3600 });
     expect(getEmailFromToken(token)).toBeNull();
   });
+
+  it("returns null when sub is present but not a string", () => {
+    const token = makeToken({ sub: 12345 });
+    expect(getEmailFromToken(token)).toBeNull();
+  });
 });
