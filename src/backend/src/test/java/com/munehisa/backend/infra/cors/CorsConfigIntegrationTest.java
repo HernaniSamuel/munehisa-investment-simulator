@@ -12,22 +12,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Regression test for the "OPTION" (missing trailing S) typo that used to be
- * in CorsConfig's allowed-methods list, which silently broke CORS preflight
- * for every method other than plain GET/POST.
+ * in CorsConfig's allowed-methods list. Spring validates a preflight against
+ * the real verb in Access-Control-Request-Method (e.g. PATCH), never against
+ * the literal string "OPTIONS", so the typo never actually blocked real
+ * preflights - it only meant the Access-Control-Allow-Methods response header
+ * echoed "OPTION" instead of "OPTIONS", which this test guards against.
  */
 @Tag("integration")
 class CorsConfigIntegrationTest extends IntegrationTestBase {
 
     @Test
-    void preflightRequest_allowsOptionsMethod() throws Exception {
+    void preflightForPatch_echoesOptionsCorrectlyInAllowedMethods() throws Exception {
         MvcResult result = mockMvc.perform(options("/user")
                         .header("Origin", "http://localhost:5173")
-                        .header("Access-Control-Request-Method", "OPTIONS"))
+                        .header("Access-Control-Request-Method", "PATCH"))
                 .andExpect(status().isOk())
                 .andReturn();
 
         String allowedMethods = result.getResponse().getHeader("Access-Control-Allow-Methods");
         assertNotNull(allowedMethods);
+        assertTrue(allowedMethods.contains("PATCH"));
         assertTrue(allowedMethods.contains("OPTIONS"));
     }
 }
