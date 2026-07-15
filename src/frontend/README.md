@@ -29,6 +29,14 @@ Visual design follows [`DESIGN.md`](./DESIGN.md) (the "Sumi" skin).
    ```
    The app is available at `http://localhost:5173` (this is also the origin the backend's `cors.allowed-origins` and `FRONTEND_URL` already expect in its dev profile — see [`../backend/.env.example`](../backend/.env.example)).
 
+### Verifying changes
+
+```
+npm run test        # vitest
+npm run typecheck    # react-router typegen + tsc
+npm run build        # production build (also run in CI)
+```
+
 ## Routes
 
 | Route | Purpose |
