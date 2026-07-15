@@ -62,12 +62,10 @@ class LoginRequestDTOTest {
     }
 
     @Test
-    void nullPassword_passesValidation() {
-        // Known gap: password only has @Size(min = 8), no @NotBlank, so null
-        // bypasses Bean Validation entirely and reaches the service layer.
+    void nullPassword_failsValidation() {
         Set<ConstraintViolation<LoginRequestDTO>> violations =
                 validator.validate(new LoginRequestDTO("ada@example.com", null));
 
-        assertTrue(violations.isEmpty());
+        assertFalse(violations.isEmpty());
     }
 }

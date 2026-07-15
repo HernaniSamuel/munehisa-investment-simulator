@@ -54,12 +54,10 @@ class ResetPasswordRequestDTOTest {
     }
 
     @Test
-    void nullNewPassword_passesValidation() {
-        // Known gap: newPassword only has @Size(min = 8), no @NotBlank, so
-        // null bypasses Bean Validation entirely and reaches the service layer.
+    void nullNewPassword_failsValidation() {
         Set<ConstraintViolation<ResetPasswordRequestDTO>> violations =
                 validator.validate(new ResetPasswordRequestDTO("some-token", null));
 
-        assertTrue(violations.isEmpty());
+        assertFalse(violations.isEmpty());
     }
 }

@@ -70,12 +70,10 @@ class RegisterRequestDTOTest {
     }
 
     @Test
-    void nullPassword_passesValidation() {
-        // Known gap: password only has @Size(min = 8), no @NotBlank, so null
-        // bypasses Bean Validation entirely and reaches the service layer.
+    void nullPassword_failsValidation() {
         Set<ConstraintViolation<RegisterRequestDTO>> violations = validator.validate(
                 new RegisterRequestDTO("Ada Lovelace", "ada@example.com", null));
 
-        assertTrue(violations.isEmpty());
+        assertFalse(violations.isEmpty());
     }
 }
