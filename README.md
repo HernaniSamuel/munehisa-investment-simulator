@@ -4,7 +4,7 @@
 
 An investment simulator named after **Munehisa Homma** (Sokyu Honma), the 18th-century Japanese rice merchant credited as the father of candlestick chart analysis. The project aims to let users practice trading strategies in a risk-free simulated market.
 
-This repository currently contains the backend (a frontend module is planned separately). It's also being used as a hands-on exercise in building a production-shaped Spring Boot service: layered architecture, real integration tests against Postgres, CI, and OpenAPI docs.
+This repository contains both the backend and the frontend. It's also being used as a hands-on exercise in building a production-shaped Spring Boot service: layered architecture, real integration tests against Postgres, CI, and OpenAPI docs. See [`src/frontend/README.md`](src/frontend/README.md) for the frontend module.
 
 ## Tech stack
 
@@ -20,10 +20,12 @@ This repository currently contains the backend (a frontend module is planned sep
 
 **Prerequisites:** JDK 21, Docker (with Docker Compose), and the Maven wrapper (already vendored, no local Maven install needed).
 
-1. Copy the environment template and fill in your own values:
+1. Copy the environment template and fill in your own values. It's needed in two places, since `docker compose` reads `.env` from the repo root while the backend app reads it from `src/backend/.env`:
    ```
+   cp src/backend/.env.example .env
    cp src/backend/.env.example src/backend/.env
    ```
+   Every value must be filled for the app to start: `EMAIL_PASSWORD` and `JWT_SECRET` have no defaults and are required by the backend; `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`/`POSTGRES_PORT` and `PGADMIN_DEFAULT_EMAIL`/`PGADMIN_DEFAULT_PASSWORD`/`PGADMIN_PORT` are required by Docker Compose (root `.env`) and must match the values used in `src/backend/.env`. Everything else in the template is optional and already has a sane default.
 2. Start Postgres (and pgAdmin, optional) via Docker Compose:
    ```
    docker compose up -d
