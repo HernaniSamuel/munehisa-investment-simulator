@@ -22,7 +22,7 @@ public class CorsConfig {
 
         config.setAllowedOrigins(allowedOrigins);
 
-        config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTION", "PATCH", "PUT"));
+        config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTIONS", "PATCH", "PUT"));
         config.setAllowedHeaders(List.of("Authorization", "Content-type"));
         config.setAllowCredentials(true);
 
