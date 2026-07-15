@@ -8,6 +8,7 @@ public record ResetPasswordRequestDTO(
         String resetPasswordToken,
 
         @Size(min = 8, max = 255)
+        @NotBlank
         String newPassword
 ) {
 }

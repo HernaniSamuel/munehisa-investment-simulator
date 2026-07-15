@@ -20,6 +20,11 @@ type RequestOptions = {
   // code as an invalid token - set this to opt out of the global-logout side
   // effect for those, and let the caller's own catch block handle the error.
   skipUnauthorizedHandling?: boolean;
+  // A handful of endpoints (forgot-password, resend-verification) use 429
+  // not as a rate-limit error but as a normal "already pending" outcome that
+  // carries a body the caller needs (message + resendAvailableAt). Listing a
+  // status here makes request() resolve with that body instead of throwing.
+  additionalSuccessStatuses?: number[];
 };
 
 // Set by AuthProvider so that any authenticated request whose token was
@@ -58,6 +63,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const isJson = response.headers.get("content-type")?.includes("application/json");
   const data = isJson ? await response.json().catch(() => undefined) : undefined;
 
+  if (options.additionalSuccessStatuses?.includes(response.status)) return data as T;
+
   if (!response.ok) {
     // Only requests made on behalf of a logged-in user carry a token, so a
     // 401/403 here means the backend rejected that session (expired/invalid
@@ -93,6 +100,7 @@ export const authApi = {
     request<PendingEmailResponse | undefined>("/auth/resend-verification", {
       method: "POST",
       body: { email },
+      additionalSuccessStatuses: [429],
     }),
 
   verifyEmail: (verificationToken: string) =>
@@ -104,6 +112,7 @@ export const authApi = {
     request<PendingEmailResponse | undefined>("/auth/forgot-password", {
       method: "POST",
       body: { email },
+      additionalSuccessStatuses: [429],
     }),
 
   resetPassword: (resetPasswordToken: string, newPassword: string) =>

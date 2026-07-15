@@ -27,6 +27,14 @@ describe("api request/error parsing", () => {
     await expect(authApi.forgotPassword("a@b.com")).resolves.toBeUndefined();
   });
 
+  it("resolves to the pending-email body when forgotPassword is rate-limited", async () => {
+    mockFetchOnce(429, { message: "Already sent", resendAvailableAt: "2026-01-01T00:00:00Z" });
+    await expect(authApi.forgotPassword("a@b.com")).resolves.toMatchObject({
+      message: "Already sent",
+      resendAvailableAt: "2026-01-01T00:00:00Z",
+    });
+  });
+
   it("parses the backend's RestErrorMessage { message } shape", async () => {
     mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
     await expect(authApi.login({ email: "a@b.com", password: "x" })).rejects.toMatchObject({
@@ -115,6 +123,59 @@ describe("api request/error parsing", () => {
       authApi.login({ email: "a@b.com", password: "x" })
     ).rejects.toBeInstanceOf(ApiError);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("sends a POST request with name/email/password for register", async () => {
+    mockFetchOnce(201);
+    await authApi.register({ name: "Ada Lovelace", email: "a@b.com", password: "hunter22" });
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/auth/register");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      name: "Ada Lovelace",
+      email: "a@b.com",
+      password: "hunter22",
+    });
+  });
+
+  it("rejects with a 409 ApiError when register is given an already-verified email", async () => {
+    mockFetchOnce(409, { status: "CONFLICT", message: "Email already in use" });
+    await expect(
+      authApi.register({ name: "Ada Lovelace", email: "a@b.com", password: "hunter22" })
+    ).rejects.toMatchObject({ status: 409, message: "Email already in use" });
+  });
+
+  it("sends a GET request with the encoded token for verifyEmail", async () => {
+    mockFetchOnce(200, { name: "Ada Lovelace", token: "jwt" });
+    await authApi.verifyEmail("a token/with special+chars");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain(`/auth/verify?verificationToken=${encodeURIComponent("a token/with special+chars")}`);
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+  });
+
+  it("sends a POST request with the token and new password for resetPassword", async () => {
+    mockFetchOnce(200, { name: "Ada Lovelace", token: "jwt" });
+    await authApi.resetPassword("reset-token", "brand-new-password");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/auth/reset-password");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      resetPasswordToken: "reset-token",
+      newPassword: "brand-new-password",
+    });
+  });
+
+  it("resolves to undefined on 204 No Content for resendVerification", async () => {
+    mockFetchOnce(204);
+    await expect(authApi.resendVerification("a@b.com")).resolves.toBeUndefined();
+  });
+
+  it("resolves to the pending-email body when resendVerification is rate-limited", async () => {
+    mockFetchOnce(429, { message: "Already sent", resendAvailableAt: "2026-01-01T00:00:00Z" });
+    await expect(authApi.resendVerification("a@b.com")).resolves.toMatchObject({
+      message: "Already sent",
+      resendAvailableAt: "2026-01-01T00:00:00Z",
+    });
   });
 
   it("sends a PATCH request with the token for updateName", async () => {

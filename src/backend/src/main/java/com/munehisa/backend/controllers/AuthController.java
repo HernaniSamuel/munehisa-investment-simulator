@@ -35,7 +35,9 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Unknown email or wrong password",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "403", description = "Email not verified yet",
-                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "429", description = "Account temporarily locked after too many failed attempts",
+                    content = @Content(schema = @Schema(implementation = AccountLockedResponseDTO.class)))
     })
     public ResponseEntity<LoginResponseDTO> login(@Valid @RequestBody LoginRequestDTO loginRequest) {
         return ResponseEntity.ok(authService.login(loginRequest));
@@ -46,6 +48,8 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "User created, verification email sent", content = @Content),
             @ApiResponse(responseCode = "409", description = "Email already registered and verified",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "403", description = "Email already registered but still pending verification",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "400", description = "Invalid request body",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
@@ -60,6 +64,8 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "New verification email sent", content = @Content),
             @ApiResponse(responseCode = "429", description = "A verification email was already sent recently"),
+            @ApiResponse(responseCode = "409", description = "Email is already verified",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "401", description = "Unknown email",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     })

@@ -49,6 +49,17 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void register_pendingVerificationEmail_returns403() throws Exception {
+        createUser(user -> user.setVerified(false));
+        RegisterRequestDTO body = new RegisterRequestDTO("Ada Lovelace", "ada@example.com", "some-password");
+
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void register_invalidEmail_returns400() throws Exception {
         RegisterRequestDTO body = new RegisterRequestDTO("Ada Lovelace", "not-an-email", "some-password");
 
@@ -159,6 +170,17 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.resendAvailableAt").isNotEmpty());
+    }
+
+    @Test
+    void resendEmail_alreadyVerifiedEmail_returns409() throws Exception {
+        createUser(user -> user.setVerified(true));
+        ResendEmailRequestDTO body = new ResendEmailRequestDTO("ada@example.com");
+
+        mockMvc.perform(post("/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isConflict());
     }
 
     // ---------- POST /auth/forgot-password ----------
