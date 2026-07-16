@@ -1,8 +1,10 @@
 package com.munehisa.backend.service;
 
 import com.munehisa.backend.exceptions.EmailSendException;
+import jakarta.mail.Part;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +57,22 @@ class EmailServiceTest {
         return new MimeMessage(Session.getInstance(new Properties()));
     }
 
+    // helper.setText(content, true) with multipart=true nests the HTML body inside
+    // MimeMultipart wrappers, so the rendered content must be dug out recursively.
+    private String extractTextContent(Part part) throws Exception {
+        Object content = part.getContent();
+        if (content instanceof MimeMultipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String extracted = extractTextContent(multipart.getBodyPart(i));
+                if (extracted != null) {
+                    return extracted;
+                }
+            }
+            return null;
+        }
+        return content instanceof String text ? text : null;
+    }
+
     @Test
     void sendVerificationEmail_buildsCorrectContextAndSendsRenderedContent() throws Exception {
         MimeMessage mimeMessage = realMimeMessage();
@@ -73,6 +91,8 @@ class EmailServiceTest {
         verify(mailSender).send(mimeMessage);
         assertEquals("Email Verification", mimeMessage.getSubject());
         assertEquals("ada@example.com", mimeMessage.getAllRecipients()[0].toString());
+        assertEquals(FROM_ADDRESS, mimeMessage.getFrom()[0].toString());
+        assertEquals(RENDERED_CONTENT, extractTextContent(mimeMessage));
     }
 
     @Test
@@ -93,6 +113,8 @@ class EmailServiceTest {
         verify(mailSender).send(mimeMessage);
         assertEquals("Password Reset Request", mimeMessage.getSubject());
         assertEquals("ada@example.com", mimeMessage.getAllRecipients()[0].toString());
+        assertEquals(FROM_ADDRESS, mimeMessage.getFrom()[0].toString());
+        assertEquals(RENDERED_CONTENT, extractTextContent(mimeMessage));
     }
 
     @Test
@@ -101,10 +123,24 @@ class EmailServiceTest {
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("email/auth-email"), any(Context.class))).thenReturn(RENDERED_CONTENT);
         MailSendException sendFailure = new MailSendException("SMTP server unavailable");
-        doThrow(sendFailure).when(mailSender).send(any(MimeMessage.class));
+        doThrow(sendFailure).when(mailSender).send(mimeMessage);
 
         EmailSendException thrown = assertThrows(EmailSendException.class,
                 () -> emailService.sendVerificationEmail("ada@example.com", "verification-token"));
+
+        assertSame(sendFailure, thrown.getCause());
+    }
+
+    @Test
+    void sendPasswordRecoverEmail_mailSendFailure_wrapsAsEmailSendException() {
+        MimeMessage mimeMessage = realMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("email/auth-email"), any(Context.class))).thenReturn(RENDERED_CONTENT);
+        MailSendException sendFailure = new MailSendException("SMTP server unavailable");
+        doThrow(sendFailure).when(mailSender).send(mimeMessage);
+
+        EmailSendException thrown = assertThrows(EmailSendException.class,
+                () -> emailService.sendPasswordRecoverEmail("ada@example.com", "reset-token"));
 
         assertSame(sendFailure, thrown.getCause());
     }
