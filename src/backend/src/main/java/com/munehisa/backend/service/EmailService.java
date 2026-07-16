@@ -55,7 +55,7 @@ public class EmailService {
             helper.setText(content, true);
             mailSender.send(mimeMessage);
         } catch (Exception exception) {
-            throw new EmailSendException();
+            throw new EmailSendException(exception);
         }
     }
 }
