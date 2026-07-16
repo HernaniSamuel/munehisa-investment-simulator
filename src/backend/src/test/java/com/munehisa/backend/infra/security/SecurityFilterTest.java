@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,12 +37,15 @@ class SecurityFilterTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private HttpServletRequest request;
+    @Mock
+    private HttpServletResponse response;
+    @Mock
+    private FilterChain filterChain;
+
     @InjectMocks
     private SecurityFilter securityFilter;
-
-    private final HttpServletRequest request = mock(HttpServletRequest.class);
-    private final HttpServletResponse response = mock(HttpServletResponse.class);
-    private final FilterChain filterChain = mock(FilterChain.class);
 
     @AfterEach
     void clearSecurityContext() {

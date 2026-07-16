@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -17,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -24,6 +26,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -35,6 +38,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * vice versa, without needing a full @SpringBootTest.
  */
 class SecurityConfigTest {
+
+    /**
+     * Hand-maintained mirror of SecurityConfig.PERMIT_ALL_ROUTES. Comparing it
+     * against the production list (rather than only probing these paths with
+     * MockMvc) is what makes an *added* permit-all route fail this test too,
+     * not just a removed one - a route added to SecurityConfig without a
+     * matching edit here breaks the equality assertion below.
+     */
+    private static final List<SecurityConfig.PermitAllRoute> EXPECTED_PERMIT_ALL_ROUTES = List.of(
+            new SecurityConfig.PermitAllRoute(HttpMethod.POST, "/auth/login"),
+            new SecurityConfig.PermitAllRoute(HttpMethod.POST, "/auth/register"),
+            new SecurityConfig.PermitAllRoute(HttpMethod.GET, "/auth/verify"),
+            new SecurityConfig.PermitAllRoute(HttpMethod.POST, "/auth/resend-verification"),
+            new SecurityConfig.PermitAllRoute(HttpMethod.POST, "/auth/forgot-password"),
+            new SecurityConfig.PermitAllRoute(HttpMethod.POST, "/auth/reset-password")
+    );
+
+    private static final List<String> EXPECTED_PERMIT_ALL_PATTERNS = List.of(
+            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
+    );
 
     private MockMvc mockMvc;
 
@@ -77,35 +100,43 @@ class SecurityConfigTest {
     }
 
     @Test
+    void permitAllRouteList_matchesExpectedList() {
+        // Direct equality against SecurityConfig's own list, not just behavioral
+        // probing: this is what catches a route being ADDED to the permit-all
+        // list without a corresponding update here (behavioral probing below
+        // only re-confirms paths we already know to look for).
+        assertEquals(EXPECTED_PERMIT_ALL_ROUTES, SecurityConfig.PERMIT_ALL_ROUTES);
+        assertEquals(EXPECTED_PERMIT_ALL_PATTERNS, SecurityConfig.PERMIT_ALL_PATTERNS);
+    }
+
+    @Test
     void permitAllRoutes_areReachableWithoutAuthentication() throws Exception {
         // No controllers are registered in this context, so a permit-all route
         // that clears security falls through to "no handler found" (404), while
         // one still guarded by security is stopped earlier with 401.
-        mockMvc.perform(post("/auth/login")).andExpect(status().isNotFound());
-        mockMvc.perform(post("/auth/register")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/auth/verify")).andExpect(status().isNotFound());
-        mockMvc.perform(post("/auth/resend-verification")).andExpect(status().isNotFound());
-        mockMvc.perform(post("/auth/forgot-password")).andExpect(status().isNotFound());
-        mockMvc.perform(post("/auth/reset-password")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/v3/api-docs/foo")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/swagger-ui.html")).andExpect(status().isNotFound());
+        for (SecurityConfig.PermitAllRoute route : SecurityConfig.PERMIT_ALL_ROUTES) {
+            mockMvc.perform(request(route.method(), route.pattern())).andExpect(status().isNotFound());
+        }
+        for (String pattern : SecurityConfig.PERMIT_ALL_PATTERNS) {
+            mockMvc.perform(get(concreteTestPath(pattern))).andExpect(status().isNotFound());
+        }
     }
 
     @Test
     void everyOtherRoute_requiresAuthentication() throws Exception {
-        // Same paths as above but with the "wrong" HTTP method, so they fall
-        // outside the permit-all matchers and land on anyRequest().authenticated().
-        mockMvc.perform(get("/auth/login")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/auth/register")).andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/auth/verify")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/auth/resend-verification")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/auth/forgot-password")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/auth/reset-password")).andExpect(status().isUnauthorized());
+        // A method not covered by any permit-all rule on the same path must
+        // still fall onto anyRequest().authenticated().
+        for (SecurityConfig.PermitAllRoute route : SecurityConfig.PERMIT_ALL_ROUTES) {
+            mockMvc.perform(request(HttpMethod.PUT, route.pattern())).andExpect(status().isUnauthorized());
+        }
 
         // Real endpoints that are intentionally not in the permit-all list.
         mockMvc.perform(get("/user")).andExpect(status().isUnauthorized());
         mockMvc.perform(patch("/user")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/user/delete")).andExpect(status().isUnauthorized());
+    }
+
+    private static String concreteTestPath(String pattern) {
+        return pattern.endsWith("/**") ? pattern.substring(0, pattern.length() - 2) + "probe" : pattern;
     }
 }
