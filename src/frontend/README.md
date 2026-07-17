@@ -37,6 +37,34 @@ npm run typecheck    # react-router typegen + tsc
 npm run build        # production build (also run in CI)
 ```
 
+### Testing
+
+Two kinds of tests live under `app/`, both run by `npm run test`:
+
+- **Pure logic tests** (`app/lib/api.test.ts`, `app/lib/jwt.test.ts`) - DOM-free; `api.test.ts`
+  additionally fetch-mocks `globalThis.fetch`.
+- **Component tests** (`*.test.tsx`) - render actual components with
+  [`@testing-library/react`](https://testing-library.com/docs/react-testing-library/intro/) and
+  simulate user interaction with
+  [`@testing-library/user-event`](https://testing-library.com/docs/user-event/intro/), under a
+  `jsdom` DOM environment (`vitest.config.ts`). `app/test/setup.ts` wires up
+  [`@testing-library/jest-dom`](https://github.com/testing-library/jest-dom) matchers (e.g.
+  `toBeInTheDocument`) and cleans up the DOM between tests.
+
+`app/test/test-utils.tsx` provides shared helpers for component tests:
+
+- `renderWithProviders(ui, { route, redirectStubs })` - renders a component the way `root.tsx`
+  wires it in the real app, inside a `MemoryRouter` (so `useNavigate`/`useLocation`/`Link` work)
+  wrapped in the real `AuthProvider` (so `useAuth` works). Pass `redirectStubs` (a list of
+  `{ path, element }`) for anything that can navigate away from itself while still mounted - most
+  commonly `ProtectedRoute` rendering `<Navigate>` after a logout, or on an unauthenticated initial
+  render. Without a real `<Routes>` match for the destination, `<Navigate>` only changes the
+  router's location - it doesn't unmount anything, so a component that keeps re-deciding to
+  redirect every render loops forever instead of settling. See `app/routes/home.test.tsx` for
+  example usage.
+- `seedAuthenticatedUser()` / `makeToken()` - seed `localStorage` the way a real login would, so a
+  component hydrates already-authenticated without going through a login form submission.
+
 ## Routes
 
 | Route | Purpose |
