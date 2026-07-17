@@ -1,7 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders } from "~/test/test-utils";
+import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
 import ResetPassword from "./reset-password";
 
@@ -39,14 +39,19 @@ describe("ResetPassword", () => {
     expect(screen.getByRole("button", { name: "▸▸ Reset password" })).toBeDisabled();
   });
 
-  it("logs in and redirects on success", async () => {
+  it("logs in, persists the session, and redirects to / on success", async () => {
     vi.mocked(authApi.resetPassword).mockResolvedValueOnce({ name: "Ada", token: "jwt" });
     const user = userEvent.setup();
-    renderWithProviders(<ResetPassword />, { route: "/reset-password?token=reset-tok" });
+    renderWithProviders(<ResetPassword />, {
+      route: "/reset-password?token=reset-tok",
+      redirectStubs: [{ path: "/", element: <div>Home page</div> }],
+    });
 
     await fillAndSubmit(user);
 
-    await waitFor(() => expect(authApi.resetPassword).toHaveBeenCalledWith("reset-tok", "brand-new-pw"));
+    expect(authApi.resetPassword).toHaveBeenCalledWith("reset-tok", "brand-new-pw");
+    expect(await screen.findByText("Home page")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ name: "Ada", token: "jwt" });
   });
 
   it("shows an inline error when the API rejects the new password", async () => {

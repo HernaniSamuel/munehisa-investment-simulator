@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders } from "~/test/test-utils";
+import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
 import VerifyEmail from "./verify-email";
 
@@ -13,6 +13,7 @@ vi.mock("~/lib/api", async (importOriginal) => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(authApi.verifyEmail).mockReset();
 });
 
@@ -43,6 +44,9 @@ describe("VerifyEmail", () => {
     expect(await screen.findByText("Your email has been verified.")).toBeInTheDocument();
     expect(authApi.verifyEmail).toHaveBeenCalledWith("verify-tok");
     expect(authApi.verifyEmail).toHaveBeenCalledTimes(1);
+    // login(response) persists the session - confirms that side effect, not
+    // just the success banner text.
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ name: "Ada", token: "jwt" });
   });
 
   it("shows an inline error when verification fails", async () => {

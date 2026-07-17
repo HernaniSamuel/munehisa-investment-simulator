@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
+import { vi } from "vitest";
 import { AuthProvider } from "~/lib/auth-context";
 
 export const STORAGE_KEY = "munehisa.auth";
@@ -25,6 +26,23 @@ export function signPayload(payload: Record<string, unknown>): string {
 // matters: fills in a sub/exp so the token is valid and decodable by default.
 export function makeToken(payload: Record<string, unknown> = {}): string {
   return signPayload({ sub: "ada@example.com", exp: Math.floor(Date.now() / 1000) + 3600, ...payload });
+}
+
+// Stubs a single fetch response, the same shape api.test.ts's local
+// mockFetchOnce uses. Most component tests should mock ~/lib/api's exported
+// functions directly instead of going through this - reach for it only when
+// a test needs to exercise the real request() implementation (e.g. to prove
+// a skipUnauthorizedHandling wiring actually holds, not just that a mocked
+// promise resolves/rejects the way the test expects).
+export function mockFetchOnce(status: number, body?: unknown, contentType = "application/json") {
+  const response = {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (name: string) => (name === "content-type" ? contentType : null) },
+    json: async () => body,
+  };
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(response);
+  return response;
 }
 
 // Seeds localStorage the same way AuthProvider's login() does, so rendering
@@ -60,7 +78,10 @@ export function renderWithProviders(
     redirectStubs?: { path: string; element: ReactElement }[];
   } = {}
 ) {
-  const routePath = typeof route === "string" ? route : route.pathname;
+  // <Route path> matches on pathname only - strip a query string/hash from a
+  // string route (e.g. "/reset-password?token=...") so it doesn't end up
+  // literally in the match pattern.
+  const routePath = typeof route === "string" ? route.split(/[?#]/)[0] : route.pathname;
 
   return render(
     <MemoryRouter initialEntries={[route]}>

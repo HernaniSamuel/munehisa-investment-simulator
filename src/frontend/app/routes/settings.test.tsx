@@ -1,16 +1,21 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders, seedAuthenticatedUser, STORAGE_KEY } from "~/test/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockFetchOnce, renderWithProviders, seedAuthenticatedUser, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi, userApi } from "~/lib/api";
 import Settings from "./settings";
 
+// deleteAccount is deliberately NOT mocked here (unlike updateName/
+// forgotPassword below) - the DeleteAccountSection tests need it to run its
+// real implementation, which is what actually carries the
+// skipUnauthorizedHandling flag being tested. They drive it via a mocked
+// fetch instead (see mockFetchOnce usage below).
 vi.mock("~/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/lib/api")>();
   return {
     ...actual,
     authApi: { ...actual.authApi, forgotPassword: vi.fn() },
-    userApi: { ...actual.userApi, updateName: vi.fn(), deleteAccount: vi.fn() },
+    userApi: { ...actual.userApi, updateName: vi.fn() },
   };
 });
 
@@ -27,11 +32,10 @@ beforeEach(() => {
   seededUser = seedAuthenticatedUser({ name: "Ada Lovelace" });
   vi.mocked(authApi.forgotPassword).mockReset();
   vi.mocked(userApi.updateName).mockReset();
-  vi.mocked(userApi.deleteAccount).mockReset();
 });
 
 describe("ChangeNameSection", () => {
-  it("saves the new name on success", async () => {
+  it("saves the new name, persists it to the session, on success", async () => {
     vi.mocked(userApi.updateName).mockResolvedValueOnce({ name: "Ada Byron" });
     const user = userEvent.setup();
     renderSettings();
@@ -44,6 +48,13 @@ describe("ChangeNameSection", () => {
     expect(await screen.findByText("Name updated.")).toBeInTheDocument();
     expect(nameField).toHaveValue("Ada Byron");
     expect(userApi.updateName).toHaveBeenCalledWith("Ada Byron", seededUser.token);
+    // login({ name: result.name, token: user.token }) re-persists the
+    // session under the new name - confirms that side effect, not just the
+    // local input value.
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({
+      name: "Ada Byron",
+      token: seededUser.token,
+    });
   });
 
   it("shows an inline error when the API rejects the update", async () => {
@@ -97,6 +108,14 @@ describe("ChangePasswordSection", () => {
 });
 
 describe("DeleteAccountSection", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("opens the confirmation modal and closes it on cancel", async () => {
     const user = userEvent.setup();
     renderSettings();
@@ -111,7 +130,15 @@ describe("DeleteAccountSection", () => {
   });
 
   it("keeps the modal open with an inline error on a wrong password, without triggering a global logout", async () => {
-    vi.mocked(userApi.deleteAccount).mockRejectedValueOnce(new ApiError(401, "Invalid Credentials"));
+    // Goes through the real userApi.deleteAccount -> request() rather than a
+    // mocked function, so this actually exercises the
+    // skipUnauthorizedHandling flag api.ts sets on this call - removing that
+    // flag would make this test fail (a real 401 with a token would
+    // otherwise fire the global unauthorized handler and log the user out,
+    // same as the "does not trigger the unauthorized handler when
+    // deleteAccount gets the wrong password" regression test in api.test.ts,
+    // just proven here at the component/UX level instead of the API level).
+    mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
     const user = userEvent.setup();
     renderSettings();
 
@@ -121,19 +148,21 @@ describe("DeleteAccountSection", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
 
     expect(await within(dialog).findByText("Invalid Credentials")).toBeInTheDocument();
-    // Still on the settings screen, modal still open, session untouched -
-    // this is the exact regression api.test.ts's "does not trigger the
-    // unauthorized handler when deleteAccount gets the wrong password" test
-    // guards at the API layer; this proves the UX consequence at the
-    // component level.
+    // Still on the settings screen, modal still open, session untouched.
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
-    expect(userApi.deleteAccount).toHaveBeenCalledWith("wrong-password", seededUser.token);
+
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/user/delete");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ password: "wrong-password" });
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      `Bearer ${seededUser.token}`
+    );
   });
 
   it("deletes the account and logs out on a correct password", async () => {
-    vi.mocked(userApi.deleteAccount).mockResolvedValueOnce(undefined);
+    mockFetchOnce(204);
     const user = userEvent.setup();
     // The success path logs out (clearing `user`) and lets ProtectedRoute's
     // <Navigate> take it from there - it doesn't close the modal itself, so
@@ -147,7 +176,6 @@ describe("DeleteAccountSection", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
 
     expect(await screen.findByText("Login page")).toBeInTheDocument();
-    expect(userApi.deleteAccount).toHaveBeenCalledWith("correct-password", seededUser.token);
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 });

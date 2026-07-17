@@ -1,7 +1,7 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders } from "~/test/test-utils";
+import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
 import Login from "./login";
 
@@ -26,16 +26,19 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>, email: st
 }
 
 describe("Login", () => {
-  it("logs in on success", async () => {
+  it("logs in, persists the session, and redirects to / on success", async () => {
     vi.mocked(authApi.login).mockResolvedValueOnce({ name: "Ada", token: "jwt" });
     const user = userEvent.setup();
-    renderWithProviders(<Login />, { route: "/login" });
+    renderWithProviders(<Login />, {
+      route: "/login",
+      redirectStubs: [{ path: "/", element: <div>Home page</div> }],
+    });
 
     await fillAndSubmit(user, "ada@example.com", "hunter22");
 
-    await waitFor(() =>
-      expect(authApi.login).toHaveBeenCalledWith({ email: "ada@example.com", password: "hunter22" })
-    );
+    expect(authApi.login).toHaveBeenCalledWith({ email: "ada@example.com", password: "hunter22" });
+    expect(await screen.findByText("Home page")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toMatchObject({ name: "Ada", token: "jwt" });
   });
 
   it("shows an inline error on failure", async () => {
