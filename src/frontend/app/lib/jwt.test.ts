@@ -1,16 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { signPayload as makeToken } from "~/test/test-utils";
 import { getEmailFromToken, isTokenExpired } from "./jwt";
-
-function makeToken(payload: Record<string, unknown>): string {
-  const base64url = (obj: object) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-
-  return `${base64url({ alg: "HS256", typ: "JWT" })}.${base64url(payload)}.signature`;
-}
 
 describe("isTokenExpired", () => {
   it("returns true for a malformed token", () => {
