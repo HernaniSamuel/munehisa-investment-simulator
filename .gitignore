@@ -34,3 +34,12 @@ build/
 
 ### environment variables ###
 .env
+
+### Python ###
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/

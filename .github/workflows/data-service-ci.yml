@@ -1,0 +1,62 @@
+name: Data Service CI
+
+on:
+  push:
+    paths:
+      - 'src/data-service/**'
+      - '.github/workflows/data-service-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/data-service/**'
+      - '.github/workflows/data-service-ci.yml'
+
+defaults:
+  run:
+    working-directory: src/data-service
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: src/data-service/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check .
+      - name: Typecheck
+        run: mypy .
+
+  test:
+    needs: lint-and-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: src/data-service/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Run fast tests (excludes the live yfinance test)
+        run: pytest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: src/data-service/pyproject.toml
+      - run: pip install .
+      - name: Verify the app builds and imports cleanly
+        env:
+          DATA_SERVICE_API_KEY: ci-smoke-test-key
+        run: python -c "import data_service.main"
