@@ -19,12 +19,38 @@ class _FakeTicker:
 
 
 class _BrokenTicker:
+    """history() itself fails outright (e.g. no network)."""
+
+    def history(self, **kwargs):
+        raise ConnectionError("boom")
+
+
+class _InfoNotTouchedIfHistoryEmptyTicker:
+    """Simulates a genuinely unknown ticker: history() is empty. Accessing .info would
+    raise here - fetch_asset must never reach it once history is already known empty."""
+
+    @property
+    def info(self):
+        raise AssertionError(".info should not be accessed when history() is empty")
+
+    def history(self, **kwargs):
+        return empty_history_df()
+
+
+class _KnownTickerWithBrokenInfo:
+    """history() succeeds (the ticker is real) but .info fails - e.g. a transient
+    upstream hiccup fetching the quote-summary endpoint after price data already came
+    through fine."""
+
+    def __init__(self, history_df):
+        self._history_df = history_df
+
     @property
     def info(self):
         raise ConnectionError("boom")
 
     def history(self, **kwargs):
-        raise ConnectionError("boom")
+        return self._history_df
 
 
 def _patch_ticker(monkeypatch, fake_ticker) -> None:
@@ -144,11 +170,46 @@ def test_fetch_asset_captures_dividends_and_splits(monkeypatch):
     assert feb.splits == Decimal("2.0")
 
 
+def test_fetch_asset_compounds_two_splits_in_the_same_month(monkeypatch):
+    # A split is a multiplicative factor, not an additive one. A 2-for-1 split and a
+    # 3-for-1 split in the same calendar month compound to an effective 6-for-1 (2 * 3),
+    # not 5 (2 + 3) - _decimal_compound_ratio must multiply, a plain sum would get this
+    # wrong even though it happens to agree with the product in the (overwhelmingly
+    # common) case of at most one split per month.
+    hist = build_history_df(
+        [
+            {
+                "date": "2024-01-02",
+                "open": 100.0,
+                "high": 100.0,
+                "low": 100.0,
+                "close": 100.0,
+                "volume": 1,
+                "splits": 2.0,
+            },
+            {
+                "date": "2024-01-15",
+                "open": 50.0,
+                "high": 50.0,
+                "low": 50.0,
+                "close": 50.0,
+                "volume": 1,
+                "splits": 3.0,
+            },
+        ]
+    )
+    _patch_ticker(monkeypatch, _FakeTicker(hist))
+
+    point = yfinance_client.fetch_asset("doublesplit").monthly_data[0]
+
+    assert point.splits == Decimal("6.0")
+
+
 def test_fetch_asset_no_split_across_many_days_stays_none(monkeypatch):
     # Regression test: yfinance's daily "Stock Splits" column uses 0.0 (not 1.0) as the
-    # no-event fill value. Aggregating a month's worth of 0.0s with 'prod' collapses to
-    # 0.0 - and 0.0 != 1.0, so it would be misreported as a split every single month.
-    # 'sum' + a `> 0` check (same convention as dividends) is what's actually correct.
+    # no-event fill value. _decimal_compound_ratio must skip those 0.0 days rather than
+    # multiplying them in (that would collapse every month to zero - the same bug that
+    # made the original 'prod'-based aggregation report a bogus split every month).
     hist = build_history_df(
         [
             {"date": d, "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0, "volume": 1}
@@ -221,3 +282,89 @@ def test_fetch_asset_raises_upstream_error_on_fetch_failure(monkeypatch):
 
     with pytest.raises(UpstreamFetchError):
         yfinance_client.fetch_asset("BROKEN")
+
+
+def test_fetch_asset_unknown_ticker_never_touches_info(monkeypatch):
+    # Regression test for a reordering fix: history() is checked for emptiness before
+    # .info is ever accessed, so an unknown ticker is always 404 regardless of whether
+    # .info would happen to raise or return junk for that ticker on a given yfinance
+    # version (empirically, on the pinned version, it doesn't raise - it silently
+    # returns a near-empty dict - but that's an implementation detail we shouldn't rely
+    # on for something as important as the 404-vs-502 distinction).
+    monkeypatch.setattr(
+        yfinance, "Ticker", lambda ticker: _InfoNotTouchedIfHistoryEmptyTicker()
+    )
+
+    with pytest.raises(AssetNotFoundError):
+        yfinance_client.fetch_asset("NOPE")
+
+
+def test_fetch_asset_raises_upstream_error_when_info_fails_for_a_real_ticker(monkeypatch):
+    hist = build_history_df(
+        [{"date": "2024-01-02", "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1}]
+    )
+    monkeypatch.setattr(yfinance, "Ticker", lambda ticker: _KnownTickerWithBrokenInfo(hist))
+
+    with pytest.raises(UpstreamFetchError):
+        yfinance_client.fetch_asset("REAL")
+
+
+def test_fetch_asset_sums_same_month_dividends_without_float_artifacts(monkeypatch):
+    # 0.1 + 0.2 in IEEE-754 float is 0.30000000000000004, not 0.3. Two dividend
+    # payments in the same month must not carry that artifact into the response.
+    # Fixed at the source (_decimal_sum converts to Decimal *before* adding, so the
+    # binary-float addition that produces the artifact never happens), not by
+    # truncating the result afterward - see _decimal_sum's docstring.
+    hist = build_history_df(
+        [
+            {
+                "date": "2024-01-02",
+                "open": 10.0,
+                "high": 10.0,
+                "low": 10.0,
+                "close": 10.0,
+                "volume": 1,
+                "dividends": 0.1,
+            },
+            {
+                "date": "2024-01-03",
+                "open": 10.0,
+                "high": 10.0,
+                "low": 10.0,
+                "close": 10.0,
+                "volume": 1,
+                "dividends": 0.2,
+            },
+        ]
+    )
+    _patch_ticker(monkeypatch, _FakeTicker(hist))
+
+    point = yfinance_client.fetch_asset("divartifact").monthly_data[0]
+
+    assert point.dividends == Decimal("0.3")
+
+
+def test_fetch_asset_preserves_high_precision_dividends(monkeypatch):
+    # Real dividends can carry more than 4-6 decimal places once split-adjusted (a
+    # dividend paid decades ago, retroactively adjusted for every split since, can land
+    # on values like 0.000536 - confirmed against AAPL's real 1987 history). Nothing
+    # should round that away: there's no noise to clean here, only real precision that
+    # deciding how much of to keep isn't this service's call to make.
+    hist = build_history_df(
+        [
+            {
+                "date": "2024-01-02",
+                "open": 10.0,
+                "high": 10.0,
+                "low": 10.0,
+                "close": 10.0,
+                "volume": 1,
+                "dividends": 0.000536,
+            }
+        ]
+    )
+    _patch_ticker(monkeypatch, _FakeTicker(hist))
+
+    point = yfinance_client.fetch_asset("highprecision").monthly_data[0]
+
+    assert point.dividends == Decimal("0.000536")

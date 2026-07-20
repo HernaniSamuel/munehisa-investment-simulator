@@ -2,7 +2,7 @@
 name = "data-service"
 version = "0.1.0"
 description = "Munehisa Investment Simulator - Python data-fetching microservice (third-party market data, no caching/persistence)"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = { text = "Apache-2.0" }
 dependencies = [
     "fastapi==0.118.0",
@@ -18,8 +18,8 @@ dependencies = [
 dev = [
     "pytest==8.4.2",
     "httpx==0.28.1",
-    "ruff==0.8.4",
-    "mypy==1.13.0",
+    "ruff==0.15.22",
+    "mypy==2.3.0",
     "pandas-stubs==2.2.3.241126",
 ]
 
@@ -39,13 +39,13 @@ addopts = "-m 'not live'"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 ignore_missing_imports = true
 

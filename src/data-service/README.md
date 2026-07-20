@@ -13,7 +13,7 @@ cache-miss and owns everything downstream of the raw data.
 
 ## Running locally
 
-**Prerequisites:** Python 3.12+ (developed against 3.14).
+**Prerequisites:** Python 3.14.
 
 1. Activate the virtualenv (already created by PyCharm at `.venv/`) and install the
    package with its dev dependencies:
@@ -27,9 +27,14 @@ cache-miss and owns everything downstream of the raw data.
    ```
    `DATA_SERVICE_API_KEY` has no default and is required - every request must send it
    back as the `X-API-Key` header. `DATA_SERVICE_PORT` is optional (defaults to `8001`).
-3. Run the service:
+3. Run the service - two ways, depending on whether you want autoreload:
    ```
+   # Dev, with autoreload (port is fixed at 8001 here - the uvicorn CLI doesn't read
+   # DATA_SERVICE_PORT; pass --port explicitly if you need a different one):
    uvicorn data_service.main:app --reload --port 8001
+
+   # No autoreload, honors DATA_SERVICE_PORT from .env:
+   python -m data_service.main
    ```
 
 ### API docs (Swagger UI)

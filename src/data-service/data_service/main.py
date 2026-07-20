@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
 from data_service.routes.assets import router as assets_router
 from data_service.schemas.error import ErrorResponse
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Munehisa Investment Simulator - Data Service",
@@ -40,8 +44,30 @@ def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse
     )
 
 
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Catch-all so every error response - including bugs we didn't anticipate - keeps the
+    # same {status, message} shape instead of falling through to FastAPI's default
+    # {"detail": ...} 500 body. The real exception is logged, not echoed to the client.
+    logger.exception("Unhandled exception while processing %s %s", request.method, request.url)
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            status="INTERNAL_SERVER_ERROR", message="Internal server error."
+        ).model_dump(),
+    )
+
+
 _STATUS_NAMES = {401: "UNAUTHORIZED", 404: "NOT_FOUND", 502: "BAD_GATEWAY"}
 
 
 def _status_name(status_code: int) -> str:
     return _STATUS_NAMES.get(status_code, str(status_code))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    from data_service.config import settings
+
+    uvicorn.run(app, host="0.0.0.0", port=settings.port)
