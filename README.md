@@ -4,7 +4,7 @@
 
 An investment simulator named after **Munehisa Homma** (Sokyu Honma), the 18th-century Japanese rice merchant credited as the father of candlestick chart analysis. The project aims to let users practice trading strategies in a risk-free simulated market.
 
-This repository contains both the backend and the frontend. It's also being used as a hands-on exercise in building a production-shaped Spring Boot service: layered architecture, real integration tests against Postgres, CI, and OpenAPI docs. See [`src/frontend/README.md`](src/frontend/README.md) for the frontend module.
+This repository contains the backend, the frontend, and a Python data-fetching microservice. It's also being used as a hands-on exercise in building a production-shaped Spring Boot service: layered architecture, real integration tests against Postgres, CI, and OpenAPI docs. See [`src/frontend/README.md`](src/frontend/README.md) for the frontend module and [`src/data-service/README.md`](src/data-service/README.md) for the Python service that fetches and normalizes third-party market data.
 
 ## Tech stack
 
