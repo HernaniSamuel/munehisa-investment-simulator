@@ -7,7 +7,7 @@ from bcb.exceptions import SGSError
 
 from data_service.exceptions import UpstreamFetchError
 from data_service.services import bcb_inflation_client
-from tests.fixtures.bcb_sgs import build_ipca_df
+from tests.fixtures.bcb_sgs import build_ipca_df, empty_ipca_df, malformed_ipca_df
 
 
 def test_fetch_brl_inflation_returns_full_series(monkeypatch):
@@ -76,6 +76,24 @@ def test_fetch_brl_inflation_wraps_arbitrary_exception_as_upstream_fetch_error(m
         raise ConnectionError("boom")
 
     monkeypatch.setattr(sgs, "get", _raise)
+
+    with pytest.raises(UpstreamFetchError):
+        bcb_inflation_client.fetch_brl_inflation()
+
+
+def test_fetch_brl_inflation_raises_upstream_error_on_empty_result(monkeypatch):
+    # The call succeeding but returning nothing usable is a distinct failure mode from
+    # the call raising - same distinction the yfinance clients make via hist.empty.
+    monkeypatch.setattr(sgs, "get", lambda code, timeout=None: empty_ipca_df())
+
+    with pytest.raises(UpstreamFetchError):
+        bcb_inflation_client.fetch_brl_inflation()
+
+
+def test_fetch_brl_inflation_raises_upstream_error_when_expected_column_missing(monkeypatch):
+    # Regression test: if a future python-bcb version renames the '433' column, the
+    # KeyError from indexing into it must surface as a 502, not an unhandled 500.
+    monkeypatch.setattr(sgs, "get", lambda code, timeout=None: malformed_ipca_df())
 
     with pytest.raises(UpstreamFetchError):
         bcb_inflation_client.fetch_brl_inflation()

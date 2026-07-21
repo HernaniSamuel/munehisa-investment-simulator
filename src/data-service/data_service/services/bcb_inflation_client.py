@@ -1,6 +1,6 @@
 from decimal import Decimal
-from typing import Any
 
+import pandas as pd
 from bcb import sgs
 
 from data_service.exceptions import UpstreamFetchError
@@ -28,20 +28,28 @@ def fetch_brl_inflation() -> InflationResponse:
 
     Raises:
         UpstreamFetchError: the call to BCB's SGS API failed for any reason (network,
-            timeout, bad response, etc.).
+            timeout, bad response, etc.), or it succeeded but returned no usable data
+            (empty frame, or the expected column missing/renamed).
     """
     try:
         df = sgs.get(_IPCA_SERIES_CODE, timeout=_TIMEOUT_SECONDS)
+        # The returned column is literally named '433' (the series code as a string) -
+        # renamed here to a proper field name rather than leaking BCB's raw column name
+        # into the response schema. Looked up inside the try, alongside the call itself:
+        # a missing/renamed column is just as much an "upstream didn't give us what we
+        # expected" failure as sgs.get() raising outright, same as hist.empty is checked
+        # in yfinance_client/yfinance_exchange_client before ever touching row 0.
+        series = df[str(_IPCA_SERIES_CODE)]
     except Exception as exc:
         raise UpstreamFetchError(
             f"Failed to fetch IPCA (BCB SGS series {_IPCA_SERIES_CODE}): {exc}"
         ) from exc
 
-    # The returned column is literally named '433' (the series code as a string) -
-    # renamed here to a proper field name rather than leaking BCB's raw column name into
-    # the response schema. No aggregation happens on our side (unlike the asset
-    # endpoint's dividends), so a plain Decimal(str(v)) per value is sufficient.
-    series = df[str(_IPCA_SERIES_CODE)]
+    if series.empty:
+        raise UpstreamFetchError(f"BCB SGS series {_IPCA_SERIES_CODE} returned no data")
+
+    # No aggregation happens on our side (unlike the asset endpoint's dividends), so a
+    # plain Decimal(str(v)) per value is sufficient - no float-artifact cleanup needed.
     monthly_data = [_row_to_point(dt, value) for dt, value in series.items()]
 
     return InflationResponse(
@@ -50,5 +58,5 @@ def fetch_brl_inflation() -> InflationResponse:
     )
 
 
-def _row_to_point(dt: Any, value: Any) -> InflationMonthlyDataPoint:
+def _row_to_point(dt: pd.Timestamp, value: float) -> InflationMonthlyDataPoint:
     return InflationMonthlyDataPoint(date=dt.date(), rate=Decimal(str(value)))

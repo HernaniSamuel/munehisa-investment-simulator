@@ -12,3 +12,14 @@ def build_ipca_df(rows: list[dict]) -> pd.DataFrame:
     """
     index = pd.DatetimeIndex([pd.Timestamp(r["date"]) for r in rows], name="Date")
     return pd.DataFrame({_IPCA_SERIES_CODE: [r["rate"] for r in rows]}, index=index)
+
+
+def empty_ipca_df() -> pd.DataFrame:
+    return pd.DataFrame({_IPCA_SERIES_CODE: []}, index=pd.DatetimeIndex([], name="Date"))
+
+
+def malformed_ipca_df() -> pd.DataFrame:
+    """A frame missing the expected '433' column entirely - e.g. a future python-bcb
+    version renaming it."""
+    index = pd.DatetimeIndex([pd.Timestamp("1980-01-01")], name="Date")
+    return pd.DataFrame({"unexpected_column": [6.62]}, index=index)
