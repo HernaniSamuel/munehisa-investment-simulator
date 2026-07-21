@@ -36,6 +36,9 @@ cache-miss and owns everything downstream of the raw data.
    # No autoreload, honors DATA_SERVICE_PORT from .env:
    python -m data_service.main
    ```
+   Both bind to `127.0.0.1` (loopback-only) - there's no network-level isolation yet
+   (deferred to a future hosting decision), so the API key is the only thing standing
+   between this service and any request that reaches it.
 
 ### API docs (Swagger UI)
 

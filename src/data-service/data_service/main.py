@@ -7,6 +7,16 @@ from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
 from data_service.routes.assets import router as assets_router
 from data_service.schemas.error import ErrorResponse
 
+# A no-op if the root logger already has a handler (e.g. uvicorn configured its own
+# before this module was imported) - otherwise this is the only thing standing between
+# our logs and Python's "handler of last resort" (INFO dropped entirely, WARNING+ shown
+# with no timestamp/level/logger name). Every future service in this repo will import
+# `logging.getLogger(__name__)` the same way this one does, so it's worth getting a
+# real baseline config in place now rather than each one rediscovering this gap.
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -70,4 +80,8 @@ if __name__ == "__main__":
 
     from data_service.config import settings
 
-    uvicorn.run(app, host="0.0.0.0", port=settings.port)
+    # Loopback-only: this service has no network-level isolation yet (deferred to a
+    # future hosting decision per the issue), and the API key is the only thing standing
+    # between it and any request that reaches it. Binding wider than 127.0.0.1 is a
+    # deliberate, separate decision to make once that hosting story exists.
+    uvicorn.run(app, host="127.0.0.1", port=settings.port)
