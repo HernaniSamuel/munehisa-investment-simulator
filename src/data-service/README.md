@@ -9,6 +9,7 @@ cache-miss and owns everything downstream of the raw data.
 
 - **FastAPI** + **Pydantic v2** for the API and its schemas/validation
 - **yfinance** / **pandas** for fetching and resampling market data
+- **python-bcb** for fetching Brazil's official inflation index (IPCA) from BCB's SGS API
 - **pytest** for tests, **ruff** for linting, **mypy** for type-checking
 
 ## Running locally
@@ -80,13 +81,18 @@ shape so both services are consistent for any client.
 |---|---|---|---|
 | `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance |
 | `GET` | `/exchange/{from_currency}/{to_currency}` | `X-API-Key` | Monthly OHLC exchange-rate history for a currency pair, sourced from Yahoo Finance |
+| `GET` | `/inflation/brl` | `X-API-Key` | Full monthly IPCA (Brazil's official inflation index) series, sourced from BCB's SGS series 433 |
 
-- Unknown/invalid ticker or currency pair → `404`
+- Unknown/invalid ticker or currency pair → `404` (not applicable to `/inflation/brl`:
+  IPCA is a single fixed series code, not a user-supplied parameter that could be unknown)
 - Missing/invalid API key → `401`
-- yfinance/network failure → `502`
+- Upstream/network failure or timeout → `502`
 - `/exchange`: `from_currency == to_currency` returns a synthetic single-point series
   (`open = high = low = close = 1`, dated `1970-01-01` as a fixed sentinel) instead of
   querying yfinance at all
+- `/inflation/brl`: each `rate` is the raw monthly rate as published (e.g. `0.5` meaning
+  0.5% that month), not an accumulated/compounded figure between two dates - that
+  compounding is business logic and stays in the Java backend
 
 ## Porting notes (MineInvest)
 
@@ -124,3 +130,27 @@ decimal quantization is applied to exchange rates: real precision varies by pair
 `USDBRL=X` vs `USDJPY=X` carry different meaningful decimal counts) and doesn't follow
 one universal convention the way stock OHLC does, so forcing a fixed decimal count
 would be an uninformed business-precision decision this service shouldn't make.
+
+`services/bcb_inflation_client.py` **replaces**, rather than ports, MineInvest's
+`external_apis/inflation/brl_inflation.py`. MineInvest calls BCB's raw SGS HTTP API by
+hand via `requests`; here, `python-bcb`'s `sgs.get(433, timeout=...)` wraps the same
+data source with a much smaller surface, confirmed empirically to have the right shape
+(a single float64 column literally named `'433'`, no NaNs, `DatetimeIndex` named
+`Date`). Two things from the original were confirmed unnecessary and intentionally left
+out:
+
+- **No hardcoded start date.** `sgs.get(433)` with no `start`/`end` already returns the
+  complete history starting exactly at `1980-01-01` - matching MineInvest's hardcoded
+  floor exactly, so there's nothing to hardcode here.
+- **No publication-schedule guessing.** MineInvest's `_get_adjusted_end_date` exists to
+  work around MineInvest's own DB caching (guessing whether "no row for last month"
+  means "not published yet" or "cache is stale"). This service never caches, so the
+  live API's own response already reflects exactly what BCB has published - there's no
+  stale-cache problem to guess around.
+
+The accumulated-inflation-between-two-dates compounding in MineInvest's
+`BCBInflationAPI.get_accumulated_inflation` is business logic and stays in Java; this
+endpoint returns the raw monthly rate as published, not a compounded figure. An
+explicit `timeout=` is required on every call: `sgs.get`'s own default is no timeout at
+all, and a request against a bad series code was confirmed to take several minutes to
+fail on its own rather than erroring out quickly.
