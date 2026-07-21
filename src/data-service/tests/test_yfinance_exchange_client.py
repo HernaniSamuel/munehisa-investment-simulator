@@ -76,8 +76,10 @@ def test_fetch_exchange_rate_direct_symbol_success(monkeypatch):
 def test_fetch_exchange_rate_inverse_symbol_fallback_inverts_rates(monkeypatch):
     # Direct symbol (USDBRL=X) has no data; BRLUSD=X does, so the result is derived from
     # it and inverted. High/low swap because inverting a ratio flips which side is
-    # larger - all values chosen as exact binary fractions so the divisions are exact
-    # and the assertions aren't tautological with the implementation.
+    # larger - values chosen as exact fractions so the expected numbers below are easy to
+    # verify by hand; test_fetch_exchange_rate_inverse_symbol_preserves_decimal_precision
+    # below covers a non-exact value to confirm the division itself happens in Decimal
+    # space, not float64.
     inverse_hist = build_history_df(
         [
             {
@@ -106,6 +108,33 @@ def test_fetch_exchange_rate_inverse_symbol_fallback_inverts_rates(monkeypatch):
     assert point.close == Decimal("4.0")
 
 
+def test_fetch_exchange_rate_inverse_symbol_preserves_decimal_precision(monkeypatch):
+    # Regression test: the inversion must be done in Decimal space, not float64 followed
+    # by a Decimal(str(...)) conversion - that would be a second floating-point operation
+    # introducing its own rounding error on top of whatever yfinance already returned.
+    # 1.0 / float("5.09119987487793") == 0.19641735240731964, which diverges from the
+    # Decimal-space result below at the 17th significant digit.
+    inverse_hist = build_history_df(
+        [
+            {
+                "date": "2024-01-02",
+                "open": 5.09119987487793,
+                "high": 5.09119987487793,
+                "low": 5.09119987487793,
+                "close": 5.09119987487793,
+                "volume": 0,
+            }
+        ]
+    )
+    _patch_tickers(
+        monkeypatch, {"USDBRL=X": empty_history_df(), "BRLUSD=X": inverse_hist}
+    )
+
+    point = yfinance_exchange_client.fetch_exchange_rate("USD", "BRL").monthly_data[0]
+
+    assert point.close == Decimal("0.1964173524073196333130334050")
+
+
 def test_fetch_exchange_rate_same_currency_returns_rate_of_one(monkeypatch):
     # Must never reach yfinance at all: yf.Ticker("USDUSD=X").history(period="max")
     # raises outright (period='max' invalid for that symbol), so this is special-cased
@@ -124,6 +153,23 @@ def test_fetch_exchange_rate_same_currency_returns_rate_of_one(monkeypatch):
     point = result.monthly_data[0]
     assert point.date == date(1970, 1, 1)
     assert point.open == point.high == point.low == point.close == Decimal(1)
+
+
+def test_fetch_exchange_rate_same_currency_shortcut_compares_after_uppercasing(monkeypatch):
+    # Regression test: mismatched casing (e.g. "usd" vs "USD") must still be recognized
+    # as the same currency. This would still pass if the comparison were accidentally
+    # done on the raw, un-uppercased inputs *and* from_currency == to_currency happened
+    # to differ only in case - so it specifically exercises that mismatch.
+    def _fail_ticker(symbol):
+        raise AssertionError("yf.Ticker should not be called for from == to")
+
+    monkeypatch.setattr(yfinance, "Ticker", _fail_ticker)
+
+    result = yfinance_exchange_client.fetch_exchange_rate("usd", "USD")
+
+    assert result.symbol == "USDUSD=X"
+    assert result.from_currency == "USD"
+    assert result.to_currency == "USD"
 
 
 def test_fetch_exchange_rate_raises_not_found_when_both_symbols_empty(monkeypatch):

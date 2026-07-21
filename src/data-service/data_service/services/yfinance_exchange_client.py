@@ -82,10 +82,7 @@ def fetch_exchange_rate(from_currency: str, to_currency: str) -> ExchangeRateRes
     hist_monthly = hist_monthly.reindex(complete_range)
     hist_monthly[_OHLC_COLUMNS] = hist_monthly[_OHLC_COLUMNS].ffill()
 
-    if inverted:
-        hist_monthly = _invert(hist_monthly)
-
-    monthly_data = [_row_to_point(dt, row) for dt, row in hist_monthly.iterrows()]
+    monthly_data = [_row_to_point(dt, row, inverted) for dt, row in hist_monthly.iterrows()]
 
     return ExchangeRateResponse(
         symbol=direct_symbol,
@@ -96,35 +93,40 @@ def fetch_exchange_rate(from_currency: str, to_currency: str) -> ExchangeRateRes
     )
 
 
-def _invert(hist_monthly: pd.DataFrame) -> pd.DataFrame:
-    """Invert an OHLC frame fetched under the inverse symbol back into direct-pair terms.
-
-    High and low swap, not just invert in place: inverting a ratio flips which side is
-    larger, so the inverse series' low (its weakest point) becomes the direct series'
-    high, and vice versa.
-    """
-    inverted = pd.DataFrame(index=hist_monthly.index)
-    inverted["Open"] = 1.0 / hist_monthly["Open"]
-    inverted["High"] = 1.0 / hist_monthly["Low"]
-    inverted["Low"] = 1.0 / hist_monthly["High"]
-    inverted["Close"] = 1.0 / hist_monthly["Close"]
-    return inverted
-
-
-def _row_to_point(dt: pd.Timestamp, row: pd.Series[Any]) -> ExchangeMonthlyDataPoint:
+def _row_to_point(
+    dt: pd.Timestamp, row: pd.Series[Any], inverted: bool
+) -> ExchangeMonthlyDataPoint:
     # No quantization on purpose: real precision varies by pair (e.g. USDBRL close
     # 5.09119987487793 vs EURUSD close 1.1415525674819946) and doesn't follow one
     # universal convention the way stock OHLC does - forcing a fixed decimal count would
     # be an uninformed business-precision decision this service shouldn't make.
-    # Decimal(str(v)) preserves whatever precision the fetch (and, for an inverted pair,
-    # the 1/x division) actually produced.
+    # Decimal(str(v)) preserves whatever precision the fetch actually produced; for an
+    # inverted pair, the 1/x division is done in Decimal space too (not float64 first and
+    # converted after), so it doesn't introduce its own rounding error on top of that -
+    # same reasoning as _decimal_sum/_decimal_compound_ratio in yfinance_client.py.
+    # Relies on the default Decimal context (28 significant digits), same as the rest of
+    # this codebase - comfortably more than any real exchange rate needs.
+    if inverted:
+        # High and low swap, not just invert in place: inverting a ratio flips which side
+        # is larger, so the inverse series' low (its weakest point) becomes the direct
+        # series' high, and vice versa.
+        open_ = _invert_decimal(row["Open"])
+        high = _invert_decimal(row["Low"])
+        low = _invert_decimal(row["High"])
+        close = _invert_decimal(row["Close"])
+    else:
+        open_ = Decimal(str(row["Open"]))
+        high = Decimal(str(row["High"]))
+        low = Decimal(str(row["Low"]))
+        close = Decimal(str(row["Close"]))
+
     return ExchangeMonthlyDataPoint(
-        date=dt.date().replace(day=1),
-        open=Decimal(str(row["Open"])),
-        high=Decimal(str(row["High"])),
-        low=Decimal(str(row["Low"])),
-        close=Decimal(str(row["Close"])),
+        date=dt.date().replace(day=1), open=open_, high=high, low=low, close=close
     )
+
+
+def _invert_decimal(value: float) -> Decimal:
+    return Decimal(1) / Decimal(str(value))
 
 
 def _same_currency_response(
