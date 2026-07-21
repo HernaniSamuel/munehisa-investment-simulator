@@ -79,10 +79,14 @@ shape so both services are consistent for any client.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance |
+| `GET` | `/exchange/{from_currency}/{to_currency}` | `X-API-Key` | Monthly OHLC exchange-rate history for a currency pair, sourced from Yahoo Finance |
 
-- Unknown/invalid ticker → `404`
+- Unknown/invalid ticker or currency pair → `404`
 - Missing/invalid API key → `401`
 - yfinance/network failure → `502`
+- `/exchange`: `from_currency == to_currency` returns a synthetic single-point series
+  (`open = high = low = close = 1`, dated `1970-01-01` as a fixed sentinel) instead of
+  querying yfinance at all
 
 ## Porting notes (MineInvest)
 
@@ -108,3 +112,15 @@ deviations found while porting and verified against the live API:
   days had zero volume; carrying the previous month's volume forward would
   misrepresent what actually happened. OHLC price columns are still forward-filled
   (there's no meaningful price data for a gap month otherwise).
+
+`services/yfinance_exchange_client.py` is ported the same way from
+`external_apis/yfinance_exchange.py` (`YFinanceExchangeAPI`, same author/license). The
+symbol construction and direct/inverse-with-rate-inversion fallback are mathematically
+correct as-is and ported unchanged; the same fetch-error-vs-not-found distinction as
+above is applied here too (`_fetch_symbol_data` there catches every exception broadly
+and returns an empty DataFrame either way, conflating "pair doesn't exist" with "fetch
+failed" - `AssetNotFoundError`/`UpstreamFetchError` are kept distinct here). No
+decimal quantization is applied to exchange rates: real precision varies by pair (e.g.
+`USDBRL=X` vs `USDJPY=X` carry different meaningful decimal counts) and doesn't follow
+one universal convention the way stock OHLC does, so forcing a fixed decimal count
+would be an uninformed business-precision decision this service shouldn't make.
