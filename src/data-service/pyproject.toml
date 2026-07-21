@@ -12,6 +12,7 @@ dependencies = [
     "yfinance==0.2.66",
     "pandas==2.3.3",
     "python-dateutil==2.9.0.post0",
+    "python-bcb==0.4.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +34,7 @@ include = ["data_service*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 markers = [
-    "live: hits the real yfinance/Yahoo Finance API over the network; excluded by default, run explicitly with `pytest -m live`",
+    "live: hits a real upstream API over the network (yfinance/Yahoo Finance, BCB SGS); excluded by default, run explicitly with `pytest -m live`",
 ]
 addopts = "-m 'not live'"
 
