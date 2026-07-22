@@ -10,6 +10,8 @@ cache-miss and owns everything downstream of the raw data.
 - **FastAPI** + **Pydantic v2** for the API and its schemas/validation
 - **yfinance** / **pandas** for fetching and resampling market data
 - **python-bcb** for fetching Brazil's official inflation index (IPCA) from BCB's SGS API
+- **requests** for fetching the US CPI-U (Consumer Price Index) from FRED's public CSV
+  export endpoint
 - **pytest** for tests, **ruff** for linting, **mypy** for type-checking
 
 ## Running locally
@@ -82,9 +84,11 @@ shape so both services are consistent for any client.
 | `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance |
 | `GET` | `/exchange/{from_currency}/{to_currency}` | `X-API-Key` | Monthly OHLC exchange-rate history for a currency pair, sourced from Yahoo Finance |
 | `GET` | `/inflation/brl` | `X-API-Key` | Full monthly IPCA (Brazil's official inflation index) series, sourced from BCB's SGS series 433 |
+| `GET` | `/inflation/usd` | `X-API-Key` | Full monthly CPI-U (US Consumer Price Index for All Urban Consumers) series, sourced from FRED series CPIAUCSL |
 
-- Unknown/invalid ticker or currency pair → `404` (not applicable to `/inflation/brl`:
-  IPCA is a single fixed series code, not a user-supplied parameter that could be unknown)
+- Unknown/invalid ticker or currency pair → `404` (not applicable to `/inflation/brl` or
+  `/inflation/usd`: both are single fixed series, not a user-supplied parameter that
+  could be unknown)
 - Missing/invalid API key → `401`
 - Upstream/network failure or timeout → `502`
 - `/exchange`: `from_currency == to_currency` returns a synthetic single-point series
@@ -93,6 +97,11 @@ shape so both services are consistent for any client.
 - `/inflation/brl`: each `rate` is the raw monthly rate as published (e.g. `0.5` meaning
   0.5% that month), not an accumulated/compounded figure between two dates - that
   compounding is business logic and stays in the Java backend
+- `/inflation/usd`: each `value` is the raw CPI-U index level as published (e.g.
+  `332.568`), not a computed inflation rate - unlike IPCA, CPI-U is an index rather than
+  a percentage, so `/inflation/brl` and `/inflation/usd` deliberately return
+  conceptually different units. A month with no published value (e.g. a publication
+  delay) is simply absent from `monthly_data` rather than interpolated.
 
 ## Porting notes (MineInvest)
 
@@ -154,3 +163,34 @@ endpoint returns the raw monthly rate as published, not a compounded figure. An
 explicit `timeout=` is required on every call: `sgs.get`'s own default is no timeout at
 all, and a request against a bad series code was confirmed to take several minutes to
 fail on its own rather than erroring out quickly.
+
+`services/fred_inflation_client.py` **simplifies**, rather than ports, MineInvest's
+`external_apis/inflation/usd_inflation.py`. MineInvest hand-parses FRED's CSV export
+with the stdlib `csv` module (manual header detection, manual row-skipping); here,
+`pandas.read_csv(StringIO(response.text), na_values=['.'])` handles all of that natively
+in one call - `requests.get(url, timeout=...)` and `raise_for_status()` are kept as a
+separate step before parsing (rather than `pd.read_csv(url)` directly, which also works
+but gives up explicit timeout/status-code control), so a bad HTTP response maps cleanly
+to `UpstreamFetchError` → `502`. Two things carried over or confirmed unnecessary:
+
+- **The dual date-column-name check is kept.** MineInvest defensively accepts either
+  `date` or `observation_date` as the CSV's date header, implying FRED renamed it at
+  some point in the past. Ported as-is rather than hardcoding `observation_date`, so a
+  future rename surfaces as a clear `UpstreamFetchError` instead of a raw `KeyError`.
+- **No publication-schedule guessing**, same conclusion as the BRL endpoint and
+  independently reconfirmed here: as of the time this was written, the live CSV's last
+  row is the current month with a real value, nothing beyond it. This service never
+  caches, so there's no stale-vs-not-yet-published ambiguity to guess around.
+
+One real finding changed the shape of this endpoint: the series has a genuine gap in the
+*middle*, not just potential incompleteness at the tail - October 2025 is present as a
+row with a `.` (empty) value, almost certainly the Oct 2025 US government shutdown
+delaying BLS publication. `na_values=['.']` turns that into a real `NaN`; rows with a
+missing value are dropped from the response entirely rather than forward-filled, so a
+gap is representable as "this month is simply absent from the series" rather than a
+fabricated interpolated number. This mirrors MineInvest's own `_calculate_from_cache`,
+which requires both endpoints of a lookup to exist and fails rather than interpolating -
+just applied per-row here instead of per-query. Unlike IPCA (already a percentage), CPI-U
+is an index: `/inflation/usd`'s `value` is the raw index level as published, not a
+computed rate - MineInvest's `end_cpi / start_cpi` ratio is the business-logic step that
+stays in Java.
