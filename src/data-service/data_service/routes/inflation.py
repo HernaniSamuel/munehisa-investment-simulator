@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends
 
 from data_service.schemas.error import ErrorResponse
-from data_service.schemas.inflation import InflationResponse
+from data_service.schemas.inflation import InflationResponse, UsdInflationResponse
 from data_service.security import require_api_key
 from data_service.services.bcb_inflation_client import fetch_brl_inflation
+from data_service.services.fred_inflation_client import fetch_usd_inflation
 
 router = APIRouter(
     prefix="/inflation",
@@ -26,3 +27,20 @@ def get_brl_inflation() -> InflationResponse:
     (e.g. `0.5` meaning 0.5% that month), not an accumulated/compounded figure between
     two dates."""
     return fetch_brl_inflation()
+
+
+@router.get(
+    "/usd",
+    response_model=UsdInflationResponse,
+    responses={
+        401: {"model": ErrorResponse, "description": "Missing or invalid API key"},
+        502: {"model": ErrorResponse, "description": "Upstream data source unavailable"},
+    },
+)
+def get_usd_inflation() -> UsdInflationResponse:
+    """Full monthly CPI-U (US Consumer Price Index for All Urban Consumers) series,
+    sourced from FRED series CPIAUCSL. Each `value` is the raw index level as published
+    (e.g. `332.568`), not a computed inflation rate or accumulated multiplier - unlike
+    `/inflation/brl`'s IPCA, CPI-U is an index rather than a percentage. A month with no
+    published value is simply absent from `monthly_data`."""
+    return fetch_usd_inflation()

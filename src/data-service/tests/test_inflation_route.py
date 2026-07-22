@@ -6,13 +6,26 @@ from fastapi.testclient import TestClient
 from data_service.exceptions import UpstreamFetchError
 from data_service.main import app
 from data_service.routes import inflation as inflation_route
-from data_service.schemas.inflation import InflationMonthlyDataPoint, InflationResponse
+from data_service.schemas.inflation import (
+    InflationMonthlyDataPoint,
+    InflationResponse,
+    UsdInflationMonthlyDataPoint,
+    UsdInflationResponse,
+)
 
 _SAMPLE_INFLATION = InflationResponse(
     start_date=date(1980, 1, 1),
     monthly_data=[
         InflationMonthlyDataPoint(date=date(1980, 1, 1), rate=Decimal("6.62")),
         InflationMonthlyDataPoint(date=date(1980, 2, 1), rate=Decimal("4.62")),
+    ],
+)
+
+_SAMPLE_USD_INFLATION = UsdInflationResponse(
+    start_date=date(1947, 1, 1),
+    monthly_data=[
+        UsdInflationMonthlyDataPoint(date=date(1947, 1, 1), value=Decimal("21.48")),
+        UsdInflationMonthlyDataPoint(date=date(1947, 2, 1), value=Decimal("21.62")),
     ],
 )
 
@@ -66,6 +79,61 @@ def test_get_brl_inflation_unexpected_error_returns_500_with_error_shape(
     non_raising_client = TestClient(app, raise_server_exceptions=False)
 
     response = non_raising_client.get("/inflation/brl", headers=auth_headers)
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "status": "INTERNAL_SERVER_ERROR",
+        "message": "Internal server error.",
+    }
+
+
+def test_get_usd_inflation_returns_200_with_valid_key(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(inflation_route, "fetch_usd_inflation", lambda: _SAMPLE_USD_INFLATION)
+
+    response = client.get("/inflation/usd", headers=auth_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["start_date"] == "1947-01-01"
+    assert body["monthly_data"][0]["value"] == "21.48"
+
+
+def test_get_usd_inflation_without_api_key_returns_401(client):
+    response = client.get("/inflation/usd")
+
+    assert response.status_code == 401
+    assert response.json() == {"status": "UNAUTHORIZED", "message": "Invalid or missing API key."}
+
+
+def test_get_usd_inflation_with_wrong_api_key_returns_401(client):
+    response = client.get("/inflation/usd", headers={"X-API-Key": "wrong-key"})
+
+    assert response.status_code == 401
+
+
+def test_get_usd_inflation_upstream_error_returns_502(client, auth_headers, monkeypatch):
+    def _raise_upstream():
+        raise UpstreamFetchError("FRED CSV endpoint is unreachable")
+
+    monkeypatch.setattr(inflation_route, "fetch_usd_inflation", _raise_upstream)
+
+    response = client.get("/inflation/usd", headers=auth_headers)
+
+    assert response.status_code == 502
+    assert response.json()["status"] == "BAD_GATEWAY"
+
+
+def test_get_usd_inflation_unexpected_error_returns_500_with_error_shape(
+    auth_headers, monkeypatch
+):
+    def _raise_bug():
+        raise RuntimeError("something we didn't anticipate")
+
+    monkeypatch.setattr(inflation_route, "fetch_usd_inflation", _raise_bug)
+
+    non_raising_client = TestClient(app, raise_server_exceptions=False)
+
+    response = non_raising_client.get("/inflation/usd", headers=auth_headers)
 
     assert response.status_code == 500
     assert response.json() == {
