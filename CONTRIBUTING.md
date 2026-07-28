@@ -110,6 +110,14 @@ When reviewing a PR, prefix comments to signal how they should be treated:
 
 Comments with no prefix are treated as `blocking:` by default.
 
+## AI-assisted workflow
+
+Any step of this workflow can be carried out by an AI assistant playing one of three roles —
+issue creator, implementer, reviewer — following the canonical prompts in
+[docs/ai-workflow/](docs/ai-workflow/README.md). Every GitHub action (opening issues, pushing,
+opening PRs, posting comments, merging) still belongs to the maintainer; the prompts only
+produce local artifacts or ready-to-paste text for the maintainer to review and act on.
+
 ## Merge strategy
 
 PRs are integrated with a **merge commit**, not squash or rebase — individual commit history is

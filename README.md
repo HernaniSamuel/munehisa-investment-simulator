@@ -76,4 +76,6 @@ Request flow: `Controller → Service → Repository`. Business rules and valida
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message format, PR/review flow,
 and merge strategy. Issues use the template at
 [.github/ISSUE_TEMPLATE.md](.github/ISSUE_TEMPLATE.md); PRs use the template at
-[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
+[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md). Parts of this workflow can
+be carried out by an AI assistant using the role prompts in
+[docs/ai-workflow/](docs/ai-workflow/README.md).
