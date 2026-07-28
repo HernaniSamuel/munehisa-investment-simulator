@@ -1,0 +1,14 @@
+package com.munehisa.backend.dto.dataservice;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.time.LocalDate;
+import java.util.List;
+
+public record ExchangeRateSeriesResponse(
+        String symbol,
+        @JsonProperty("from_currency") String fromCurrency,
+        @JsonProperty("to_currency") String toCurrency,
+        @JsonProperty("start_date") LocalDate startDate,
+        @JsonProperty("monthly_data") List<ExchangeMonthlyDataPoint> monthlyData
+) {}
