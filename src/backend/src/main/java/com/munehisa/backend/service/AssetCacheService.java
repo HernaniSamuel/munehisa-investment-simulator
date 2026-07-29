@@ -12,6 +12,7 @@ import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.AssetUnavailableException;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
+import com.munehisa.backend.repository.PositionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -29,6 +31,7 @@ public class AssetCacheService {
     private final AssetCatalogRepository assetCatalogRepository;
     private final AssetMonthlyPriceRepository assetMonthlyPriceRepository;
     private final DataServiceAssetClient dataServiceAssetClient;
+    private final PositionRepository positionRepository;
 
     public AssetLookupResultDTO getAssetSeries(String tickerRaw, YearMonth targetMonth) {
         String ticker = tickerRaw.toUpperCase();
@@ -60,6 +63,17 @@ public class AssetCacheService {
 
         return new AssetLookupResultDTO(
                 ticker, catalog.getName(), catalog.getBaseCurrency(), targetMonth, effectiveMonth, truncated, series);
+    }
+
+    // Assumes assetId already exists in asset_catalog (the only route into `position` is via
+    // its FK to asset_catalog.id); a nonexistent assetId is out of scope for #70 and will
+    // surface as EmptyResultDataAccessException from deleteById if ever violated.
+    public void evictIfOrphaned(UUID assetId) {
+        if (positionRepository.existsByAssetId(assetId)) {
+            return;
+        }
+        assetCatalogRepository.deleteById(assetId);
+        log.info("Evicted orphaned asset cache entry {}", assetId);
     }
 
     private AssetMonthDataDTO toDto(AssetMonthlyPrice row) {

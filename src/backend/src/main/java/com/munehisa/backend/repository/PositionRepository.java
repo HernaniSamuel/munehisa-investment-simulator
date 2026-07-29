@@ -8,4 +8,6 @@ import java.util.UUID;
 
 public interface PositionRepository extends JpaRepository<Position, UUID> {
     List<Position> findBySimulationId(UUID simulationId);
+
+    boolean existsByAssetId(UUID assetId);
 }

@@ -124,4 +124,20 @@ class PositionRepositoryTest extends SharedPostgresContainer {
         assertThrows(DataIntegrityViolationException.class, () ->
                 persist(simulation.getId(), UUID.randomUUID()));
     }
+
+    @Test
+    void existsByAssetId_returnsTrueWhenAssetIsReferenced() {
+        Simulation simulation = persistSimulation();
+        AssetCatalog catalog = persistAssetCatalog("AAPL");
+        persist(simulation.getId(), catalog.getId());
+
+        assertTrue(positionRepository.existsByAssetId(catalog.getId()));
+    }
+
+    @Test
+    void existsByAssetId_returnsFalseWhenAssetIsUnreferenced() {
+        AssetCatalog catalog = persistAssetCatalog("AAPL");
+
+        assertFalse(positionRepository.existsByAssetId(catalog.getId()));
+    }
 }
