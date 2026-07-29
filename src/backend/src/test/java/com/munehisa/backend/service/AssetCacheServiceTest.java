@@ -11,6 +11,7 @@ import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.AssetUnavailableException;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
+import com.munehisa.backend.repository.PositionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +24,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -47,8 +49,11 @@ class AssetCacheServiceTest {
     @Mock
     private DataServiceAssetClient dataServiceAssetClient;
 
+    @Mock
+    private PositionRepository positionRepository;
+
     private AssetCacheService buildService() {
-        return new AssetCacheService(assetCatalogRepository, assetMonthlyPriceRepository, dataServiceAssetClient);
+        return new AssetCacheService(assetCatalogRepository, assetMonthlyPriceRepository, dataServiceAssetClient, positionRepository);
     }
 
     private AssetCatalog catalog(String ticker, String name, String baseCurrency, LocalDate startDate) {
@@ -328,5 +333,29 @@ class AssetCacheServiceTest {
         assertTrue(result.truncated());
         assertEquals(YearMonth.of(2024, 6), result.returnedMonth());
         verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+    }
+
+    // --- Eviction --------------------------------------------------------------------------
+
+    @Test
+    void evictIfOrphaned_deletesCatalogRowWhenNoPositionReferencesIt() {
+        UUID assetId = UUID.randomUUID();
+        when(positionRepository.existsByAssetId(assetId)).thenReturn(false);
+
+        AssetCacheService service = buildService();
+        service.evictIfOrphaned(assetId);
+
+        verify(assetCatalogRepository).deleteById(assetId);
+    }
+
+    @Test
+    void evictIfOrphaned_leavesCatalogRowWhenAPositionStillReferencesIt() {
+        UUID assetId = UUID.randomUUID();
+        when(positionRepository.existsByAssetId(assetId)).thenReturn(true);
+
+        AssetCacheService service = buildService();
+        service.evictIfOrphaned(assetId);
+
+        verify(assetCatalogRepository, never()).deleteById(any(UUID.class));
     }
 }
