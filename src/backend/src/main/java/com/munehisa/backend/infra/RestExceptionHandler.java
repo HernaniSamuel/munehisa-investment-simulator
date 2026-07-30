@@ -78,6 +78,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);
     }
 
+    @ExceptionHandler(SimulationNotFoundException.class)
+    public ResponseEntity<RestErrorMessage> simulationNotFoundHandler(SimulationNotFoundException exception) {
+        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(FutureSimulationStartMonthException.class)
+    public ResponseEntity<RestErrorMessage> futureSimulationStartMonthHandler(FutureSimulationStartMonthException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
