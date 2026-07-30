@@ -1,10 +1,15 @@
 package com.munehisa.backend.service;
 
+import com.munehisa.backend.domain.asset.AssetCatalog;
 import com.munehisa.backend.domain.inflation.InflationCurrency;
+import com.munehisa.backend.domain.simulation.Position;
 import com.munehisa.backend.domain.simulation.Simulation;
+import com.munehisa.backend.domain.simulation.Snapshot;
+import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AssetLookupResultDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
@@ -15,7 +20,12 @@ import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
+import com.munehisa.backend.exceptions.SnapshotNotFoundException;
+import com.munehisa.backend.repository.AssetCatalogRepository;
+import com.munehisa.backend.repository.PositionRepository;
 import com.munehisa.backend.repository.SimulationRepository;
+import com.munehisa.backend.repository.SnapshotPositionRepository;
+import com.munehisa.backend.repository.SnapshotRepository;
 import com.munehisa.backend.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,8 +68,24 @@ class SimulationServiceTest {
     @Mock
     private InflationDeflationService inflationDeflationService;
 
+    @Mock
+    private SnapshotRepository snapshotRepository;
+
+    @Mock
+    private SnapshotPositionRepository snapshotPositionRepository;
+
+    @Mock
+    private PositionRepository positionRepository;
+
+    @Mock
+    private AssetCatalogRepository assetCatalogRepository;
+
+    @Mock
+    private AssetCacheService assetCacheService;
+
     private SimulationService buildService(Clock clock) {
-        return new SimulationService(simulationRepository, transactionRepository, inflationDeflationService, clock);
+        return new SimulationService(simulationRepository, transactionRepository, inflationDeflationService, clock,
+                snapshotRepository, snapshotPositionRepository, positionRepository, assetCatalogRepository, assetCacheService);
     }
 
     private static Clock fixedClockOn(LocalDate date) {
@@ -296,6 +322,253 @@ class SimulationServiceTest {
 
         verify(simulationRepository, never()).save(any());
         verify(transactionRepository, never()).save(any());
+    }
+
+    // --- createSnapshot ---------------------------------------------------------------------
+
+    @Test
+    void createSnapshot_noExistingSnapshot_upsertsSnapshotAndPositions() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.empty());
+        when(snapshotRepository.save(any(Snapshot.class))).thenAnswer(invocation -> {
+            Snapshot saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+        when(snapshotPositionRepository.findBySnapshotId(any())).thenReturn(List.of());
+
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "1500.00", "20.00");
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.")));
+
+        buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).createSnapshot(simulation.getId(), user);
+
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        assertEquals(simulation.getId(), snapshotCaptor.getValue().getSimulationId());
+        assertEquals(0, simulation.getCashBalance().compareTo(snapshotCaptor.getValue().getCashBalance()));
+        assertEquals(0, simulation.getTotalAssetValue().compareTo(snapshotCaptor.getValue().getTotalAssetValue()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<SnapshotPosition>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(snapshotPositionRepository).saveAll(positionsCaptor.capture());
+        List<SnapshotPosition> saved = positionsCaptor.getValue();
+        assertEquals(1, saved.size());
+        assertEquals("AAPL", saved.get(0).getTicker());
+        assertEquals("Apple Inc.", saved.get(0).getAssetName());
+        assertEquals(10, saved.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("1500.00").compareTo(saved.get(0).getCostBasis()));
+    }
+
+    @Test
+    void createSnapshot_existingSnapshot_overwritesInPlaceAndReplacesOldPositions() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+
+        Snapshot existingSnapshot = new Snapshot();
+        existingSnapshot.setId(UUID.randomUUID());
+        existingSnapshot.setSimulationId(simulation.getId());
+        existingSnapshot.setCashBalance(BigDecimal.ZERO);
+        existingSnapshot.setTotalAssetValue(BigDecimal.ZERO);
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(existingSnapshot));
+        when(snapshotRepository.save(any(Snapshot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SnapshotPosition staleSnapshotPosition = new SnapshotPosition();
+        staleSnapshotPosition.setId(UUID.randomUUID());
+        staleSnapshotPosition.setSnapshotId(existingSnapshot.getId());
+        when(snapshotPositionRepository.findBySnapshotId(existingSnapshot.getId())).thenReturn(List.of(staleSnapshotPosition));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).createSnapshot(simulation.getId(), user);
+
+        verify(snapshotPositionRepository).deleteAll(List.of(staleSnapshotPosition));
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        assertEquals(existingSnapshot.getId(), snapshotCaptor.getValue().getId());
+        assertEquals(0, simulation.getCashBalance().compareTo(snapshotCaptor.getValue().getCashBalance()));
+    }
+
+    @Test
+    void createSnapshot_notOwnedOrMissingSimulation_throwsSimulationNotFoundExceptionAndDoesNotTouchSnapshot() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).createSnapshot(id, user));
+
+        verifyNoInteractions(snapshotRepository, snapshotPositionRepository, positionRepository);
+    }
+
+    // --- resetToSnapshot --------------------------------------------------------------------
+
+    @Test
+    void resetToSnapshot_noSnapshot_throwsSnapshotNotFoundExceptionAndDoesNotChangeAnything() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SnapshotNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).resetToSnapshot(simulation.getId(), user));
+
+        verify(simulationRepository, never()).save(any());
+        verify(positionRepository, never()).deleteAll(any());
+        verifyNoInteractions(assetCacheService);
+        verify(transactionRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void resetToSnapshot_notOwnedOrMissingSimulation_throwsSimulationNotFoundException() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).resetToSnapshot(id, user));
+
+        verifyNoInteractions(snapshotRepository);
+    }
+
+    @Test
+    void resetToSnapshot_happyPath_restoresCashRecreatesPositionsAndDeletesMonthNonDividendTransactions() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(simulationRepository.save(any(Simulation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Snapshot snapshot = new Snapshot();
+        snapshot.setId(UUID.randomUUID());
+        snapshot.setSimulationId(simulation.getId());
+        snapshot.setCashBalance(new BigDecimal("1200.00"));
+        snapshot.setTotalAssetValue(new BigDecimal("300.00"));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(snapshot));
+
+        SnapshotPosition snapshotPosition = new SnapshotPosition();
+        snapshotPosition.setSnapshotId(snapshot.getId());
+        snapshotPosition.setTicker("AAPL");
+        snapshotPosition.setAssetName("Apple Inc.");
+        snapshotPosition.setQuantity(5);
+        snapshotPosition.setWeight(new BigDecimal("1.0"));
+        snapshotPosition.setCostBasis(new BigDecimal("750.00"));
+        snapshotPosition.setTotalDividendsReceived(BigDecimal.ZERO);
+        when(snapshotPositionRepository.findBySnapshotId(snapshot.getId())).thenReturn(List.of(snapshotPosition));
+
+        // Bought after the snapshot was taken - the revert must wipe it out and evict its asset.
+        UUID staleAssetId = UUID.randomUUID();
+        Position stalePosition = position(simulation.getId(), staleAssetId, 3, "1.0", "900.00", "0.00");
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(stalePosition));
+
+        UUID aaplAssetId = UUID.randomUUID();
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of()));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.")));
+
+        Transaction depositThisMonth = transaction(simulation.getId(), TransactionType.DEPOSIT, simulation.getCurrentMonth());
+        Transaction dividendThisMonth = transaction(simulation.getId(), TransactionType.DIVIDEND, simulation.getCurrentMonth());
+        Transaction buyLastMonth = transaction(simulation.getId(), TransactionType.BUY, simulation.getCurrentMonth().minusMonths(1));
+        when(transactionRepository.findBySimulationId(simulation.getId()))
+                .thenReturn(List.of(depositThisMonth, dividendThisMonth, buyLastMonth));
+
+        SimulationResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .resetToSnapshot(simulation.getId(), user);
+
+        assertEquals(0, new BigDecimal("1200.00").compareTo(response.cashBalance()));
+        assertEquals(0, new BigDecimal("1500.00").compareTo(response.totalPatrimony()));
+
+        verify(positionRepository).deleteAll(List.of(stalePosition));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> newPositionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(newPositionsCaptor.capture());
+        assertEquals(1, newPositionsCaptor.getValue().size());
+        assertEquals(aaplAssetId, newPositionsCaptor.getValue().get(0).getAssetId());
+        assertEquals(5, newPositionsCaptor.getValue().get(0).getQuantity());
+
+        verify(assetCacheService).evictIfOrphaned(staleAssetId);
+        verify(assetCacheService, never()).evictIfOrphaned(aaplAssetId);
+
+        verify(transactionRepository).deleteAll(List.of(depositThisMonth));
+    }
+
+    @Test
+    void resetToSnapshot_assetPresentBeforeAndAfterReset_doesNotEvictIt() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(simulationRepository.save(any(Simulation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Snapshot snapshot = new Snapshot();
+        snapshot.setId(UUID.randomUUID());
+        snapshot.setSimulationId(simulation.getId());
+        snapshot.setCashBalance(simulation.getCashBalance());
+        snapshot.setTotalAssetValue(simulation.getTotalAssetValue());
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(snapshot));
+
+        UUID assetId = UUID.randomUUID();
+        SnapshotPosition snapshotPosition = new SnapshotPosition();
+        snapshotPosition.setSnapshotId(snapshot.getId());
+        snapshotPosition.setTicker("AAPL");
+        snapshotPosition.setAssetName("Apple Inc.");
+        snapshotPosition.setQuantity(5);
+        snapshotPosition.setWeight(new BigDecimal("1.0"));
+        snapshotPosition.setCostBasis(new BigDecimal("750.00"));
+        snapshotPosition.setTotalDividendsReceived(BigDecimal.ZERO);
+        when(snapshotPositionRepository.findBySnapshotId(snapshot.getId())).thenReturn(List.of(snapshotPosition));
+
+        Position existingPosition = position(simulation.getId(), assetId, 5, "1.0", "750.00", "0.00");
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of()));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.")));
+        when(transactionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).resetToSnapshot(simulation.getId(), user);
+
+        verify(assetCacheService, never()).evictIfOrphaned(any());
+    }
+
+    private Position position(UUID simulationId, UUID assetId, long quantity, String weight, String costBasis, String totalDividendsReceived) {
+        Position position = new Position();
+        position.setId(UUID.randomUUID());
+        position.setSimulationId(simulationId);
+        position.setAssetId(assetId);
+        position.setQuantity(quantity);
+        position.setWeight(new BigDecimal(weight));
+        position.setCostBasis(new BigDecimal(costBasis));
+        position.setTotalDividendsReceived(new BigDecimal(totalDividendsReceived));
+        return position;
+    }
+
+    private AssetCatalog assetCatalog(UUID id, String ticker, String name) {
+        AssetCatalog catalog = new AssetCatalog();
+        catalog.setId(id);
+        catalog.setTicker(ticker);
+        catalog.setName(name);
+        catalog.setBaseCurrency("USD");
+        catalog.setStartDate(LocalDate.of(2000, 1, 1));
+        return catalog;
+    }
+
+    private Transaction transaction(UUID simulationId, TransactionType type, YearMonth month) {
+        Transaction transaction = new Transaction();
+        transaction.setId(UUID.randomUUID());
+        transaction.setSimulationId(simulationId);
+        transaction.setType(type);
+        transaction.setMonth(month);
+        transaction.setAmount(BigDecimal.TEN);
+        if (type == TransactionType.BUY || type == TransactionType.SELL || type == TransactionType.DIVIDEND) {
+            transaction.setTicker("AAPL");
+            transaction.setAssetName("Apple Inc.");
+        }
+        if (type == TransactionType.BUY || type == TransactionType.SELL) {
+            transaction.setQuantity(1L);
+        }
+        return transaction;
     }
 
     private InflationDeflationResultDTO deflationResult(BigDecimal originalValue, BigDecimal deflatedValue, YearMonth targetMonth) {
