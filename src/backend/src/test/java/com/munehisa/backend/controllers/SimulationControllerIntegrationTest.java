@@ -23,6 +23,7 @@ import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.infra.security.TokenService;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
+import com.munehisa.backend.repository.ExchangeRateRepository;
 import com.munehisa.backend.repository.PositionRepository;
 import com.munehisa.backend.repository.SimulationRepository;
 import com.munehisa.backend.repository.SnapshotPositionRepository;
@@ -77,6 +78,8 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     private AssetCatalogRepository assetCatalogRepository;
     @Autowired
     private AssetMonthlyPriceRepository assetMonthlyPriceRepository;
+    @Autowired
+    private ExchangeRateRepository exchangeRateRepository;
 
     @MockitoBean
     private InflationDeflationService inflationDeflationService;
@@ -87,12 +90,14 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
 
     @AfterEach
     void cleanAssetCatalog() {
-        // AssetCatalog isn't owned by a user, so IntegrationTestBase's user-cascade
-        // cleanup never reaches it; several tests below persist one directly. Positions
-        // are deleted first since this @AfterEach runs before the superclass's user-cascade
-        // cleanup, and some reset tests deliberately leave positions in place to assert on.
+        // AssetCatalog/ExchangeRate aren't owned by a user, so IntegrationTestBase's
+        // user-cascade cleanup never reaches them; several tests below persist rows
+        // directly. Positions are deleted first since this @AfterEach runs before the
+        // superclass's user-cascade cleanup, and some reset tests deliberately leave
+        // positions in place to assert on.
         positionRepository.deleteAll();
         assetCatalogRepository.deleteAll();
+        exchangeRateRepository.deleteAll();
     }
 
     private Simulation seedSimulation(UUID userId, String name, String baseCurrency) {
