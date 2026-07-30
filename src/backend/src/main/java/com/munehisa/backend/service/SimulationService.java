@@ -1,9 +1,14 @@
 package com.munehisa.backend.service;
 
+import com.munehisa.backend.domain.asset.AssetCatalog;
+import com.munehisa.backend.domain.simulation.Position;
 import com.munehisa.backend.domain.simulation.Simulation;
+import com.munehisa.backend.domain.simulation.Snapshot;
+import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AssetLookupResultDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
@@ -13,16 +18,26 @@ import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
+import com.munehisa.backend.exceptions.SnapshotNotFoundException;
+import com.munehisa.backend.repository.AssetCatalogRepository;
+import com.munehisa.backend.repository.PositionRepository;
 import com.munehisa.backend.repository.SimulationRepository;
+import com.munehisa.backend.repository.SnapshotPositionRepository;
+import com.munehisa.backend.repository.SnapshotRepository;
 import com.munehisa.backend.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +46,11 @@ public class SimulationService {
     private final TransactionRepository transactionRepository;
     private final InflationDeflationService inflationDeflationService;
     private final Clock clock;
+    private final SnapshotRepository snapshotRepository;
+    private final SnapshotPositionRepository snapshotPositionRepository;
+    private final PositionRepository positionRepository;
+    private final AssetCatalogRepository assetCatalogRepository;
+    private final AssetCacheService assetCacheService;
 
     public SimulationResponseDTO create(CreateSimulationRequestDTO request, User user) {
         YearMonth currentMonth = YearMonth.now(clock);
@@ -76,6 +96,94 @@ public class SimulationService {
 
     public CashMovementResponseDTO withdraw(UUID id, CashMovementRequestDTO request, User user) {
         return applyCashMovement(id, request, user, TransactionType.WITHDRAWAL);
+    }
+
+    @Transactional
+    public void createSnapshot(UUID id, User user) {
+        Simulation simulation = findOwned(id, user);
+
+        Snapshot snapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseGet(Snapshot::new);
+        snapshot.setSimulationId(simulation.getId());
+        snapshot.setCashBalance(simulation.getCashBalance());
+        snapshot.setTotalAssetValue(simulation.getTotalAssetValue());
+        UUID snapshotId = snapshotRepository.save(snapshot).getId();
+
+        snapshotPositionRepository.deleteAll(snapshotPositionRepository.findBySnapshotId(snapshotId));
+
+        List<SnapshotPosition> snapshotPositions = positionRepository.findBySimulationId(simulation.getId()).stream()
+                .map(position -> toSnapshotPosition(position, snapshotId))
+                .toList();
+        snapshotPositionRepository.saveAll(snapshotPositions);
+    }
+
+    @Transactional
+    public SimulationResponseDTO resetToSnapshot(UUID id, User user) {
+        Simulation simulation = findOwned(id, user);
+        Snapshot snapshot = snapshotRepository.findBySimulationId(simulation.getId())
+                .orElseThrow(SnapshotNotFoundException::new);
+        List<SnapshotPosition> snapshotPositions = snapshotPositionRepository.findBySnapshotId(snapshot.getId());
+
+        List<Position> oldPositions = positionRepository.findBySimulationId(simulation.getId());
+        Set<UUID> oldAssetIds = oldPositions.stream().map(Position::getAssetId).collect(Collectors.toSet());
+
+        simulation.setCashBalance(snapshot.getCashBalance());
+        simulation.setTotalAssetValue(snapshot.getTotalAssetValue());
+        simulationRepository.save(simulation);
+
+        // Flushed immediately: Hibernate would otherwise defer this delete until after the
+        // inserts below in the same flush, and the recreated position can share a (simulation,
+        // asset) pair with the one being deleted here, tripping the table's unique constraint.
+        positionRepository.deleteAll(oldPositions);
+        positionRepository.flush();
+
+        Set<UUID> newAssetIds = new HashSet<>();
+        List<Position> newPositions = new ArrayList<>();
+        for (SnapshotPosition snapshotPosition : snapshotPositions) {
+            AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(snapshotPosition.getTicker(), simulation.getCurrentMonth());
+            AssetCatalog asset = assetCatalogRepository.findByTicker(lookup.ticker())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "No asset catalog entry for " + lookup.ticker() + " after a successful refresh"));
+
+            Position position = new Position();
+            position.setSimulationId(simulation.getId());
+            position.setAssetId(asset.getId());
+            position.setQuantity(snapshotPosition.getQuantity());
+            position.setWeight(snapshotPosition.getWeight());
+            position.setCostBasis(snapshotPosition.getCostBasis());
+            position.setTotalDividendsReceived(snapshotPosition.getTotalDividendsReceived());
+            newPositions.add(position);
+            newAssetIds.add(asset.getId());
+        }
+        positionRepository.saveAll(newPositions);
+
+        for (UUID oldAssetId : oldAssetIds) {
+            if (!newAssetIds.contains(oldAssetId)) {
+                assetCacheService.evictIfOrphaned(oldAssetId);
+            }
+        }
+
+        List<Transaction> monthTransactions = transactionRepository.findBySimulationId(simulation.getId()).stream()
+                .filter(transaction -> transaction.getMonth().equals(simulation.getCurrentMonth())
+                        && transaction.getType() != TransactionType.DIVIDEND)
+                .toList();
+        transactionRepository.deleteAll(monthTransactions);
+
+        return toResponse(simulation);
+    }
+
+    private SnapshotPosition toSnapshotPosition(Position position, UUID snapshotId) {
+        AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
+                .orElseThrow(() -> new IllegalStateException("No asset catalog entry for asset id " + position.getAssetId()));
+
+        SnapshotPosition snapshotPosition = new SnapshotPosition();
+        snapshotPosition.setSnapshotId(snapshotId);
+        snapshotPosition.setTicker(asset.getTicker());
+        snapshotPosition.setAssetName(asset.getName());
+        snapshotPosition.setQuantity(position.getQuantity());
+        snapshotPosition.setWeight(position.getWeight());
+        snapshotPosition.setCostBasis(position.getCostBasis());
+        snapshotPosition.setTotalDividendsReceived(position.getTotalDividendsReceived());
+        return snapshotPosition;
     }
 
     private CashMovementResponseDTO applyCashMovement(UUID id, CashMovementRequestDTO request, User user, TransactionType type) {
