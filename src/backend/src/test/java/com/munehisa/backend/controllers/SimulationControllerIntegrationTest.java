@@ -18,6 +18,8 @@ import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
+import com.munehisa.backend.dto.dataservice.RawExchangeMonthDataPoint;
+import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.infra.security.TokenService;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
@@ -27,6 +29,7 @@ import com.munehisa.backend.repository.SnapshotPositionRepository;
 import com.munehisa.backend.repository.SnapshotRepository;
 import com.munehisa.backend.repository.TransactionRepository;
 import com.munehisa.backend.service.DataServiceAssetClient;
+import com.munehisa.backend.service.DataServiceExchangeRateClient;
 import com.munehisa.backend.service.InflationDeflationService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -79,6 +82,8 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     private InflationDeflationService inflationDeflationService;
     @MockitoBean
     private DataServiceAssetClient dataServiceAssetClient;
+    @MockitoBean
+    private DataServiceExchangeRateClient dataServiceExchangeRateClient;
 
     @AfterEach
     void cleanAssetCatalog() {
@@ -361,6 +366,105 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     @Test
     void get_withoutToken_returns401() throws Exception {
         mockMvc.perform(get("/simulations/{id}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- searchAsset ------------------------------------------------------------------------
+
+    @Test
+    void searchAsset_sameCurrency_returns200WithSeriesAndUnconvertedCashBalance() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", simulation.getId(), "AAPL")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ticker").value("AAPL"))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.series.length()").value(1))
+                .andExpect(jsonPath("$.cashBalance.amount").value(1000.00))
+                .andExpect(jsonPath("$.cashBalance.currency").value("USD"))
+                .andExpect(jsonPath("$.cashBalance.wasConverted").value(false));
+    }
+
+    @Test
+    void searchAsset_crossCurrency_returns200WithConvertedCashBalance() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("1000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(
+                List.of(new RawExchangeMonthDataPoint(simulation.getCurrentMonth(),
+                        new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"))));
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", simulation.getId(), "AAPL")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.cashBalance.amount").value(200.00))
+                .andExpect(jsonPath("$.cashBalance.currency").value("USD"))
+                .andExpect(jsonPath("$.cashBalance.wasConverted").value(true));
+    }
+
+    @Test
+    void searchAsset_unknownTicker_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        when(dataServiceAssetClient.fetchSeries("ZZZZ")).thenThrow(new AssetNotFoundException("ZZZZ", new RuntimeException("404")));
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", simulation.getId(), "ZZZZ")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchAsset_tickerPredatesStartDate_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        simulation.setCurrentMonth(YearMonth.of(1992, 1));
+        simulation = simulationRepository.save(simulation);
+        seedAssetCatalog("AAPL", "Apple Inc.");
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", simulation.getId(), "AAPL")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void searchAsset_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", UUID.randomUUID(), "AAPL")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchAsset_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD");
+
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", simulation.getId(), "AAPL")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchAsset_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/simulations/{id}/assets/{ticker}", UUID.randomUUID(), "AAPL"))
                 .andExpect(status().isUnauthorized());
     }
 

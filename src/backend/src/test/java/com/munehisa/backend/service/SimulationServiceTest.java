@@ -10,13 +10,17 @@ import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
 import com.munehisa.backend.dto.AssetLookupResultDTO;
+import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
+import com.munehisa.backend.dto.ExchangeRateLookupResultDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.InflationLookupResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.exceptions.AssetNotFoundException;
+import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
@@ -83,9 +87,13 @@ class SimulationServiceTest {
     @Mock
     private AssetCacheService assetCacheService;
 
+    @Mock
+    private ExchangeRateCacheService exchangeRateCacheService;
+
     private SimulationService buildService(Clock clock) {
         return new SimulationService(simulationRepository, transactionRepository, inflationDeflationService, clock,
-                snapshotRepository, snapshotPositionRepository, positionRepository, assetCatalogRepository, assetCacheService);
+                snapshotRepository, snapshotPositionRepository, positionRepository, assetCatalogRepository, assetCacheService,
+                exchangeRateCacheService);
     }
 
     private static Clock fixedClockOn(LocalDate date) {
@@ -186,6 +194,95 @@ class SimulationServiceTest {
 
         assertEquals(1, result.size());
         assertEquals(simulation.getId(), result.get(0).id());
+    }
+
+    // --- searchAsset -----------------------------------------------------------------------
+
+    @Test
+    void searchAsset_sameCurrency_returnsSeriesAndUnconvertedCashBalance() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+
+        AssetLookupResultDTO lookup = new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of());
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(lookup);
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+
+        AssetSearchResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .searchAsset(simulation.getId(), "AAPL", user);
+
+        assertEquals("AAPL", response.ticker());
+        assertEquals("BRL", response.currency());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance().amount()));
+        assertEquals("BRL", response.cashBalance().currency());
+        assertFalse(response.cashBalance().wasConverted());
+    }
+
+    @Test
+    void searchAsset_crossCurrency_returnsConvertedCashBalance() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+
+        AssetLookupResultDTO lookup = new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of());
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(lookup);
+        when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
+
+        AssetSearchResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .searchAsset(simulation.getId(), "AAPL", user);
+
+        assertEquals("USD", response.currency());
+        assertEquals(0, new BigDecimal("200.00").compareTo(response.cashBalance().amount()));
+        assertEquals("USD", response.cashBalance().currency());
+        assertTrue(response.cashBalance().wasConverted());
+    }
+
+    @Test
+    void searchAsset_unknownTicker_propagatesAssetNotFoundException() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(assetCacheService.getAssetSeries("ZZZZ", simulation.getCurrentMonth()))
+                .thenThrow(new AssetNotFoundException("ZZZZ", new RuntimeException("404")));
+
+        assertThrows(AssetNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).searchAsset(simulation.getId(), "ZZZZ", user));
+
+        verifyNoInteractions(exchangeRateCacheService);
+    }
+
+    @Test
+    void searchAsset_tickerPredatesStartDate_propagatesAssetPredatesStartDateException() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(assetCacheService.getAssetSeries("TSLA", simulation.getCurrentMonth()))
+                .thenThrow(new AssetPredatesStartDateException("TSLA", simulation.getCurrentMonth(), LocalDate.of(2010, 6, 29)));
+
+        assertThrows(AssetPredatesStartDateException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).searchAsset(simulation.getId(), "TSLA", user));
+
+        verifyNoInteractions(exchangeRateCacheService);
+    }
+
+    @Test
+    void searchAsset_notOwnedOrMissingSimulation_throwsSimulationNotFoundException() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).searchAsset(id, "AAPL", user));
+
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService);
+    }
+
+    private ExchangeRateLookupResultDTO exchangeRate(String from, String to, YearMonth month, BigDecimal rate) {
+        return new ExchangeRateLookupResultDTO(from, to, month, month, rate, rate, rate, rate, true, true);
     }
 
     // --- deposit --------------------------------------------------------------------------
