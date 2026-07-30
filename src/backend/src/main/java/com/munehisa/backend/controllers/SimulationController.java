@@ -1,6 +1,7 @@
 package com.munehisa.backend.controllers;
 
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
@@ -110,6 +111,25 @@ public class SimulationController {
     ) {
         simulationService.delete(id, user);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    @GetMapping("/{id}/assets/{ticker}")
+    @Operation(summary = "Search an asset within a simulation", description = "Looks up a ticker's bounded price/dividend/split history as of the authenticated user's simulation's current month, plus the simulation's cash balance converted to the asset's currency.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Asset found"),
+            @ApiResponse(responseCode = "400", description = "Ticker exists but its start date is after the simulation's current month",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller, or the ticker does not exist",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<AssetSearchResponseDTO> searchAsset(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @PathVariable String ticker
+    ) {
+        return ResponseEntity.ok(simulationService.searchAsset(id, ticker, user));
     }
 
     @PostMapping("/{id}/deposits")

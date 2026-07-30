@@ -9,9 +9,12 @@ import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
 import com.munehisa.backend.dto.AssetLookupResultDTO;
+import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
+import com.munehisa.backend.dto.ConvertedCashBalanceDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
+import com.munehisa.backend.dto.ExchangeRateLookupResultDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
@@ -51,6 +54,7 @@ public class SimulationService {
     private final PositionRepository positionRepository;
     private final AssetCatalogRepository assetCatalogRepository;
     private final AssetCacheService assetCacheService;
+    private final ExchangeRateCacheService exchangeRateCacheService;
 
     public SimulationResponseDTO create(CreateSimulationRequestDTO request, User user) {
         YearMonth currentMonth = YearMonth.now(clock);
@@ -78,6 +82,16 @@ public class SimulationService {
 
     public SimulationResponseDTO get(UUID id, User user) {
         return toResponse(findOwned(id, user));
+    }
+
+    public AssetSearchResponseDTO searchAsset(UUID id, String ticker, User user) {
+        Simulation simulation = findOwned(id, user);
+        AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(ticker, simulation.getCurrentMonth());
+        ConvertedCashBalanceDTO cashBalance = convertCashBalance(simulation, lookup.baseCurrency());
+        return new AssetSearchResponseDTO(
+                lookup.ticker(), lookup.name(), lookup.baseCurrency(),
+                lookup.requestedMonth(), lookup.returnedMonth(), lookup.truncated(),
+                lookup.series(), cashBalance);
     }
 
     public SimulationResponseDTO rename(UUID id, RenameSimulationRequestDTO request, User user) {
@@ -224,6 +238,20 @@ public class SimulationService {
     private Simulation findOwned(UUID id, User user) {
         return simulationRepository.findByIdAndUserId(id, user.getId())
                 .orElseThrow(SimulationNotFoundException::new);
+    }
+
+    // Always goes through the exchange-rate cache rather than special-casing currency
+    // equality here - getExchangeRate already short-circuits same-currency pairs to a fixed
+    // 1:1 rate without touching the repository or data-service, so wasConverted can just be
+    // read off its result instead of being recomputed.
+    private ConvertedCashBalanceDTO convertCashBalance(Simulation simulation, String assetCurrency) {
+        ExchangeRateLookupResultDTO rate = exchangeRateCacheService.getExchangeRate(
+                simulation.getBaseCurrency(), assetCurrency, simulation.getCurrentMonth());
+        boolean wasConverted = !rate.fromCurrency().equals(rate.toCurrency());
+        BigDecimal amount = wasConverted
+                ? simulation.getCashBalance().multiply(rate.close())
+                : simulation.getCashBalance();
+        return new ConvertedCashBalanceDTO(amount, assetCurrency, wasConverted);
     }
 
     private SimulationResponseDTO toResponse(Simulation simulation) {

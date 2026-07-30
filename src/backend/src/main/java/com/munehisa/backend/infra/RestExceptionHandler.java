@@ -108,6 +108,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(AssetNotFoundException.class)
+    public ResponseEntity<RestErrorMessage> assetNotFoundHandler(AssetNotFoundException exception) {
+        return buildErrorResponse(exception, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(AssetPredatesStartDateException.class)
+    public ResponseEntity<RestErrorMessage> assetPredatesStartDateHandler(AssetPredatesStartDateException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
