@@ -88,6 +88,21 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(InsufficientCashBalanceException.class)
+    public ResponseEntity<RestErrorMessage> insufficientCashBalanceHandler(InsufficientCashBalanceException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(FutureDeflationTargetException.class)
+    public ResponseEntity<RestErrorMessage> futureDeflationTargetHandler(FutureDeflationTargetException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(UnsupportedDeflationCurrencyException.class)
+    public ResponseEntity<RestErrorMessage> unsupportedDeflationCurrencyHandler(UnsupportedDeflationCurrencyException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(

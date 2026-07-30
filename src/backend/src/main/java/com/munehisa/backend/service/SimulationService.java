@@ -1,13 +1,20 @@
 package com.munehisa.backend.service;
 
 import com.munehisa.backend.domain.simulation.Simulation;
+import com.munehisa.backend.domain.simulation.Transaction;
+import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.CashMovementRequestDTO;
+import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
+import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
+import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
 import com.munehisa.backend.repository.SimulationRepository;
+import com.munehisa.backend.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +28,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SimulationService {
     private final SimulationRepository simulationRepository;
+    private final TransactionRepository transactionRepository;
+    private final InflationDeflationService inflationDeflationService;
     private final Clock clock;
 
     public SimulationResponseDTO create(CreateSimulationRequestDTO request, User user) {
@@ -59,6 +68,49 @@ public class SimulationService {
 
     public void delete(UUID id, User user) {
         simulationRepository.delete(findOwned(id, user));
+    }
+
+    public CashMovementResponseDTO deposit(UUID id, CashMovementRequestDTO request, User user) {
+        return applyCashMovement(id, request, user, TransactionType.DEPOSIT);
+    }
+
+    public CashMovementResponseDTO withdraw(UUID id, CashMovementRequestDTO request, User user) {
+        return applyCashMovement(id, request, user, TransactionType.WITHDRAWAL);
+    }
+
+    private CashMovementResponseDTO applyCashMovement(UUID id, CashMovementRequestDTO request, User user, TransactionType type) {
+        Simulation simulation = findOwned(id, user);
+
+        InflationDeflationResultDTO deflation = null;
+        BigDecimal appliedAmount = request.amount();
+        if (Boolean.TRUE.equals(request.todaysMoney())) {
+            deflation = inflationDeflationService.deflate(request.amount(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+            appliedAmount = deflation.deflatedValue();
+        }
+
+        if (type == TransactionType.WITHDRAWAL && appliedAmount.compareTo(simulation.getCashBalance()) > 0) {
+            throw new InsufficientCashBalanceException(appliedAmount, simulation.getCashBalance());
+        }
+
+        simulation.setCashBalance(type == TransactionType.DEPOSIT
+                ? simulation.getCashBalance().add(appliedAmount)
+                : simulation.getCashBalance().subtract(appliedAmount));
+        simulationRepository.save(simulation);
+
+        Transaction transaction = new Transaction();
+        transaction.setSimulationId(simulation.getId());
+        transaction.setType(type);
+        transaction.setMonth(simulation.getCurrentMonth());
+        transaction.setAmount(appliedAmount);
+        transactionRepository.save(transaction);
+
+        return new CashMovementResponseDTO(
+                simulation.getId(),
+                appliedAmount,
+                simulation.getCashBalance(),
+                simulation.getTotalPatrimony(),
+                deflation
+        );
     }
 
     private Simulation findOwned(UUID id, User user) {

@@ -1,6 +1,7 @@
 package com.munehisa.backend.controllers;
 
 import com.munehisa.backend.domain.asset.AssetCatalog;
+import com.munehisa.backend.domain.inflation.InflationCurrency;
 import com.munehisa.backend.domain.simulation.Position;
 import com.munehisa.backend.domain.simulation.Simulation;
 import com.munehisa.backend.domain.simulation.Snapshot;
@@ -8,7 +9,10 @@ import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
+import com.munehisa.backend.dto.InflationDeflationResultDTO;
+import com.munehisa.backend.dto.InflationLookupResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.infra.security.TokenService;
@@ -18,11 +22,13 @@ import com.munehisa.backend.repository.SimulationRepository;
 import com.munehisa.backend.repository.SnapshotPositionRepository;
 import com.munehisa.backend.repository.SnapshotRepository;
 import com.munehisa.backend.repository.TransactionRepository;
+import com.munehisa.backend.service.InflationDeflationService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
@@ -33,6 +39,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -58,6 +65,9 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     @Autowired
     private AssetCatalogRepository assetCatalogRepository;
 
+    @MockitoBean
+    private InflationDeflationService inflationDeflationService;
+
     @AfterEach
     void cleanAssetCatalog() {
         // AssetCatalog isn't owned by a user, so IntegrationTestBase's user-cascade
@@ -75,6 +85,26 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         simulation.setCashBalance(BigDecimal.ZERO);
         simulation.setTotalAssetValue(BigDecimal.ZERO);
         return simulationRepository.save(simulation);
+    }
+
+    private Simulation seedSimulation(UUID userId, String name, String baseCurrency, BigDecimal cashBalance) {
+        Simulation simulation = new Simulation();
+        simulation.setUserId(userId);
+        simulation.setName(name);
+        simulation.setBaseCurrency(baseCurrency);
+        simulation.setStartMonth(YearMonth.of(2024, 1));
+        simulation.setCurrentMonth(YearMonth.of(2024, 1));
+        simulation.setCashBalance(cashBalance);
+        simulation.setTotalAssetValue(BigDecimal.ZERO);
+        return simulationRepository.save(simulation);
+    }
+
+    private InflationDeflationResultDTO deflationResult(BigDecimal originalValue, BigDecimal deflatedValue, YearMonth targetMonth) {
+        InflationLookupResultDTO currentMonthLookup = new InflationLookupResultDTO(
+                InflationCurrency.BRL, YearMonth.of(2024, 1), YearMonth.of(2024, 1), new BigDecimal("200"), false, true);
+        InflationLookupResultDTO targetMonthLookup = new InflationLookupResultDTO(
+                InflationCurrency.BRL, targetMonth, targetMonth, new BigDecimal("100"), true, false);
+        return new InflationDeflationResultDTO(originalValue, deflatedValue, InflationCurrency.BRL, currentMonthLookup, targetMonthLookup);
     }
 
     private String readBody(MvcResult result) throws Exception {
@@ -408,6 +438,301 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     @Test
     void delete_withoutToken_returns401() throws Exception {
         mockMvc.perform(delete("/simulations/{id}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- deposit --------------------------------------------------------------------------
+
+    @Test
+    void deposit_todaysMoneyFalse_returns200AppliesRawAmountAndRecordsTransaction() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("200.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(200.00))
+                .andExpect(jsonPath("$.cashBalance").value(200.00))
+                .andExpect(jsonPath("$.deflation").doesNotExist());
+
+        assertEquals(0, new BigDecimal("200.00").compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, transactions.size());
+        assertEquals(TransactionType.DEPOSIT, transactions.get(0).getType());
+        assertEquals(0, new BigDecimal("200.00").compareTo(transactions.get(0).getAmount()));
+    }
+
+    @Test
+    void deposit_todaysMoneyTrue_appliesDeflatedAmountAndSurfacesFallbackFlags() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        when(inflationDeflationService.deflate(new BigDecimal("300.00"), "BRL", simulation.getCurrentMonth()))
+                .thenReturn(deflationResult(new BigDecimal("300.00"), new BigDecimal("250.00"), simulation.getCurrentMonth()));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("300.00"), true);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(250.00))
+                .andExpect(jsonPath("$.cashBalance").value(250.00))
+                .andExpect(jsonPath("$.deflation.targetMonthLookup.oldestAvailable").value(true))
+                .andExpect(jsonPath("$.deflation.targetMonthLookup.newestAvailable").value(false));
+
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(0, new BigDecimal("250.00").compareTo(transactions.get(0).getAmount()));
+    }
+
+    @Test
+    void deposit_zeroAmount_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(BigDecimal.ZERO, false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+
+        assertTrue(transactionRepository.findBySimulationId(simulation.getId()).isEmpty());
+    }
+
+    @Test
+    void deposit_negativeAmount_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("-50.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deposit_missingTodaysMoney_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 100.00}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deposit_nonexistentId_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("100.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deposit_anotherUsersSimulation_returns404AndDoesNotChangeBalance() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("100.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+    }
+
+    @Test
+    void deposit_withoutToken_returns401() throws Exception {
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("100.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/deposits", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- withdrawal -------------------------------------------------------------------------
+
+    @Test
+    void withdrawal_todaysMoneyFalse_returns200AppliesRawAmountAndRecordsTransaction() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("1000.00"));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("400.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(400.00))
+                .andExpect(jsonPath("$.cashBalance").value(600.00))
+                .andExpect(jsonPath("$.deflation").doesNotExist());
+
+        assertEquals(0, new BigDecimal("600.00").compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, transactions.size());
+        assertEquals(TransactionType.WITHDRAWAL, transactions.get(0).getType());
+        assertEquals(0, new BigDecimal("400.00").compareTo(transactions.get(0).getAmount()));
+    }
+
+    @Test
+    void withdrawal_todaysMoneyTrue_appliesDeflatedAmount() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("1000.00"));
+        when(inflationDeflationService.deflate(new BigDecimal("300.00"), "BRL", simulation.getCurrentMonth()))
+                .thenReturn(deflationResult(new BigDecimal("300.00"), new BigDecimal("250.00"), simulation.getCurrentMonth()));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("300.00"), true);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(250.00))
+                .andExpect(jsonPath("$.cashBalance").value(750.00));
+
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(0, new BigDecimal("250.00").compareTo(transactions.get(0).getAmount()));
+    }
+
+    @Test
+    void withdrawal_amountExceedsCashBalance_returns400AndDoesNotChangeBalanceOrRecordTransaction() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("100.00"));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("150.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(0, new BigDecimal("100.00").compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+        assertTrue(transactionRepository.findBySimulationId(simulation.getId()).isEmpty());
+    }
+
+    @Test
+    void withdrawal_deflatedAmountExceedsCashBalance_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("100.00"));
+        when(inflationDeflationService.deflate(new BigDecimal("150.00"), "BRL", simulation.getCurrentMonth()))
+                .thenReturn(deflationResult(new BigDecimal("150.00"), new BigDecimal("200.00"), simulation.getCurrentMonth()));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("150.00"), true);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(0, new BigDecimal("100.00").compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+    }
+
+    @Test
+    void withdrawal_zeroAmount_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("100.00"));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(BigDecimal.ZERO, false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void withdrawal_negativeAmount_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("100.00"));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("-10.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void withdrawal_nonexistentId_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("50.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void withdrawal_anotherUsersSimulation_returns404AndDoesNotChangeBalance() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "BRL", new BigDecimal("100.00"));
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("50.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+
+        assertEquals(0, new BigDecimal("100.00").compareTo(simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+    }
+
+    @Test
+    void withdrawal_withoutToken_returns401() throws Exception {
+        CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("50.00"), false);
+
+        mockMvc.perform(post("/simulations/{id}/withdrawals", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isUnauthorized());
     }
 }

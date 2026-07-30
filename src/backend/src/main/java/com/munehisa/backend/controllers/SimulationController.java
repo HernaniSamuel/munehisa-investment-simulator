@@ -1,6 +1,8 @@
 package com.munehisa.backend.controllers;
 
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.CashMovementRequestDTO;
+import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
@@ -26,7 +28,7 @@ import java.util.UUID;
 @RestController
 @AllArgsConstructor
 @RequestMapping("/simulations")
-@Tag(name = "Simulation", description = "Create, list, rename and delete the authenticated user's simulations")
+@Tag(name = "Simulation", description = "Create, list, rename, delete, and deposit/withdraw cash for the authenticated user's simulations")
 @SecurityRequirement(name = "bearerAuth")
 public class SimulationController {
     private final SimulationService simulationService;
@@ -108,5 +110,43 @@ public class SimulationController {
     ) {
         simulationService.delete(id, user);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    @PostMapping("/{id}/deposits")
+    @Operation(summary = "Deposit into a simulation", description = "Adds cash to the authenticated user's simulation. When todaysMoney is true, the amount is deflated to the simulation's current month before being applied and recorded.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Deposit applied"),
+            @ApiResponse(responseCode = "400", description = "Invalid request body, non-positive amount, or unsupported deflation currency/target month",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<CashMovementResponseDTO> depositToSimulation(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @Valid @RequestBody CashMovementRequestDTO request
+    ) {
+        return ResponseEntity.ok(simulationService.deposit(id, request, user));
+    }
+
+    @PostMapping("/{id}/withdrawals")
+    @Operation(summary = "Withdraw from a simulation", description = "Removes cash from the authenticated user's simulation. When todaysMoney is true, the amount is deflated to the simulation's current month before being applied and recorded; the deflated value is what is checked against the available cash balance.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Withdrawal applied"),
+            @ApiResponse(responseCode = "400", description = "Invalid request body, non-positive amount, amount exceeding the cash balance, or unsupported deflation currency/target month",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<CashMovementResponseDTO> withdrawFromSimulation(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @Valid @RequestBody CashMovementRequestDTO request
+    ) {
+        return ResponseEntity.ok(simulationService.withdraw(id, request, user));
     }
 }
