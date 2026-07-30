@@ -57,4 +57,8 @@ public class Simulation {
 
     @Column(name = "total_asset_value", nullable = false)
     private BigDecimal totalAssetValue;
+
+    public BigDecimal getTotalPatrimony() {
+        return cashBalance.add(totalAssetValue);
+    }
 }
