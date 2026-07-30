@@ -149,4 +149,39 @@ public class SimulationController {
     ) {
         return ResponseEntity.ok(simulationService.withdraw(id, request, user));
     }
+
+    @PostMapping("/{id}/snapshot")
+    @Operation(summary = "Snapshot a simulation", description = "Captures the authenticated user's simulation's current cash balance, total asset value, and positions into its snapshot slot, overwriting whatever it held before.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Snapshot created", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<HttpStatus> snapshotSimulation(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id
+    ) {
+        simulationService.createSnapshot(id, user);
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+    }
+
+    @PostMapping("/{id}/reset")
+    @Operation(summary = "Reset a simulation to its snapshot", description = "Restores the authenticated user's simulation's cash balance, total asset value, and positions from its snapshot, and undoes the current month's trades, deposits, and withdrawals (dividends already credited are kept).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Simulation reset"),
+            @ApiResponse(responseCode = "400", description = "No snapshot exists yet for this simulation",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<SimulationResponseDTO> resetSimulation(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id
+    ) {
+        return ResponseEntity.ok(simulationService.resetToSnapshot(id, user));
+    }
 }
