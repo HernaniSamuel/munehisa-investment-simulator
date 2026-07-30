@@ -92,4 +92,24 @@ class SimulationRepositoryTest extends SharedPostgresContainer {
         assertThrows(DataIntegrityViolationException.class, () ->
                 persist(UUID.randomUUID(), "Retirement plan", "BRL"));
     }
+
+    @Test
+    void findByIdAndUserId_correctUser_returnsSimulation() {
+        User user = persistUser("ada@example.com");
+        Simulation simulation = persist(user.getId(), "Retirement plan", "BRL");
+
+        Optional<Simulation> found = simulationRepository.findByIdAndUserId(simulation.getId(), user.getId());
+
+        assertTrue(found.isPresent());
+        assertEquals(simulation.getId(), found.get().getId());
+    }
+
+    @Test
+    void findByIdAndUserId_wrongUser_returnsEmpty() {
+        User owner = persistUser("ada@example.com");
+        User other = persistUser("grace@example.com");
+        Simulation simulation = persist(owner.getId(), "Retirement plan", "BRL");
+
+        assertTrue(simulationRepository.findByIdAndUserId(simulation.getId(), other.getId()).isEmpty());
+    }
 }
