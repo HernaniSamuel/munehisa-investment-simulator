@@ -118,6 +118,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(InsufficientCashForPurchaseException.class)
+    public ResponseEntity<RestErrorMessage> insufficientCashForPurchaseHandler(InsufficientCashForPurchaseException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(InsufficientPositionQuantityException.class)
+    public ResponseEntity<RestErrorMessage> insufficientPositionQuantityHandler(InsufficientPositionQuantityException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(

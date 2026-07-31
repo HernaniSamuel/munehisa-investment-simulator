@@ -16,10 +16,15 @@ import com.munehisa.backend.dto.ConvertedCashBalanceDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.ExchangeRateLookupResultDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
+import com.munehisa.backend.dto.PositionResponseDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TradeRequestDTO;
+import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
+import com.munehisa.backend.exceptions.InsufficientCashForPurchaseException;
+import com.munehisa.backend.exceptions.InsufficientPositionQuantityException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
 import com.munehisa.backend.exceptions.SnapshotNotFoundException;
 import com.munehisa.backend.repository.AssetCatalogRepository;
@@ -33,11 +38,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Clock;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -45,6 +52,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class SimulationService {
+    private static final MathContext MATH_CONTEXT = new MathContext(50);
+
     private final SimulationRepository simulationRepository;
     private final TransactionRepository transactionRepository;
     private final InflationDeflationService inflationDeflationService;
@@ -110,6 +119,142 @@ public class SimulationService {
 
     public CashMovementResponseDTO withdraw(UUID id, CashMovementRequestDTO request, User user) {
         return applyCashMovement(id, request, user, TransactionType.WITHDRAWAL);
+    }
+
+    @Transactional
+    public TradeResponseDTO buy(UUID id, TradeRequestDTO request, User user) {
+        Simulation simulation = findOwned(id, user);
+        List<Position> positions = new ArrayList<>(positionRepository.findBySimulationId(simulation.getId()));
+
+        // Resolving the asset's price is required to compute the cost, so this call - and the
+        // AssetNotFoundException/AssetPredatesStartDateException it may throw - can never be
+        // skipped, unlike a check that could be bypassed by a caller that "already searched".
+        AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(request.ticker(), simulation.getCurrentMonth());
+        BigDecimal price = currentClose(lookup);
+        BigDecimal costInAssetCurrency = price.multiply(BigDecimal.valueOf(request.quantity()), MATH_CONTEXT);
+
+        ConvertedCashBalanceDTO convertedCash = convertCashBalance(simulation, lookup.baseCurrency());
+        if (costInAssetCurrency.compareTo(convertedCash.amount()) > 0) {
+            throw new InsufficientCashForPurchaseException(costInAssetCurrency, convertedCash.amount(), lookup.baseCurrency());
+        }
+
+        // Independent, opposite-direction rate lookup from convertCashBalance's above: that one
+        // only produced a figure to check against, this one produces the value actually applied
+        // to the cash balance and cost basis - the cash balance itself is never round-tripped
+        // through the asset's currency and back.
+        ExchangeRateLookupResultDTO purchaseRate = exchangeRateCacheService.getExchangeRate(
+                lookup.baseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+        BigDecimal costInBaseCurrency = costInAssetCurrency.multiply(purchaseRate.close(), MATH_CONTEXT);
+
+        simulation.setCashBalance(simulation.getCashBalance().subtract(costInBaseCurrency));
+
+        AssetCatalog asset = assetCatalogRepository.findByTicker(lookup.ticker())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No asset catalog entry for " + lookup.ticker() + " after a successful refresh"));
+
+        Position position = positions.stream()
+                .filter(p -> p.getAssetId().equals(asset.getId()))
+                .findFirst()
+                .orElseGet(() -> {
+                    Position created = new Position();
+                    created.setSimulationId(simulation.getId());
+                    created.setAssetId(asset.getId());
+                    created.setQuantity(0);
+                    created.setCostBasis(BigDecimal.ZERO);
+                    created.setWeight(BigDecimal.ZERO);
+                    created.setTotalDividendsReceived(BigDecimal.ZERO);
+                    positions.add(created);
+                    return created;
+                });
+        position.setQuantity(position.getQuantity() + request.quantity());
+        position.setCostBasis(position.getCostBasis().add(costInBaseCurrency));
+
+        Transaction transaction = new Transaction();
+        transaction.setSimulationId(simulation.getId());
+        transaction.setType(TransactionType.BUY);
+        transaction.setMonth(simulation.getCurrentMonth());
+        transaction.setAmount(costInBaseCurrency);
+        transaction.setTicker(lookup.ticker());
+        transaction.setAssetName(lookup.name());
+        transaction.setQuantity(request.quantity());
+        transactionRepository.save(transaction);
+
+        recalculatePositionsAndTotalValue(simulation, positions);
+        positionRepository.saveAll(positions);
+        simulationRepository.save(simulation);
+
+        return new TradeResponseDTO(
+                simulation.getId(), TransactionType.BUY, toPositionResponse(position, asset),
+                costInBaseCurrency, simulation.getCashBalance(), simulation.getTotalAssetValue(), simulation.getTotalPatrimony());
+    }
+
+    @Transactional
+    public TradeResponseDTO sell(UUID id, TradeRequestDTO request, User user) {
+        Simulation simulation = findOwned(id, user);
+        List<Position> positions = new ArrayList<>(positionRepository.findBySimulationId(simulation.getId()));
+
+        String ticker = request.ticker().toUpperCase();
+        Optional<AssetCatalog> assetLookup = assetCatalogRepository.findByTicker(ticker);
+        Optional<Position> positionLookup = assetLookup.flatMap(asset -> positions.stream()
+                .filter(p -> p.getAssetId().equals(asset.getId()))
+                .findFirst());
+
+        // Sell has no cash-conversion check at all, only a held-quantity check - so unlike buy,
+        // there is no reason to force a price/data-service round trip just to reject a request
+        // that is invalid regardless of price. A ticker that was never bought (or never fetched)
+        // degenerates to "0 held", which this same check already rejects.
+        long held = positionLookup.map(Position::getQuantity).orElse(0L);
+        if (request.quantity() > held) {
+            throw new InsufficientPositionQuantityException(ticker, request.quantity(), held);
+        }
+
+        AssetCatalog asset = assetLookup.get();
+        Position position = positionLookup.get();
+
+        AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(asset.getTicker(), simulation.getCurrentMonth());
+        BigDecimal price = currentClose(lookup);
+
+        BigDecimal costBasisRemoved = position.getCostBasis()
+                .multiply(BigDecimal.valueOf(request.quantity()), MATH_CONTEXT)
+                .divide(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
+
+        ExchangeRateLookupResultDTO sellRate = exchangeRateCacheService.getExchangeRate(
+                asset.getBaseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+        BigDecimal proceeds = price.multiply(BigDecimal.valueOf(request.quantity()), MATH_CONTEXT)
+                .multiply(sellRate.close(), MATH_CONTEXT);
+
+        simulation.setCashBalance(simulation.getCashBalance().add(proceeds));
+
+        boolean fullSell = request.quantity() == position.getQuantity();
+        if (fullSell) {
+            positions.remove(position);
+            positionRepository.delete(position);
+            // Flushed immediately, mirroring resetToSnapshot's explicit flush, so the eviction
+            // check's existsByAssetId query below is guaranteed to see this delete.
+            positionRepository.flush();
+            assetCacheService.evictIfOrphaned(asset.getId());
+        } else {
+            position.setQuantity(position.getQuantity() - request.quantity());
+            position.setCostBasis(position.getCostBasis().subtract(costBasisRemoved));
+        }
+
+        Transaction transaction = new Transaction();
+        transaction.setSimulationId(simulation.getId());
+        transaction.setType(TransactionType.SELL);
+        transaction.setMonth(simulation.getCurrentMonth());
+        transaction.setAmount(proceeds);
+        transaction.setTicker(asset.getTicker());
+        transaction.setAssetName(asset.getName());
+        transaction.setQuantity(request.quantity());
+        transactionRepository.save(transaction);
+
+        recalculatePositionsAndTotalValue(simulation, positions);
+        positionRepository.saveAll(positions);
+        simulationRepository.save(simulation);
+
+        return new TradeResponseDTO(
+                simulation.getId(), TransactionType.SELL, fullSell ? null : toPositionResponse(position, asset),
+                proceeds, simulation.getCashBalance(), simulation.getTotalAssetValue(), simulation.getTotalPatrimony());
     }
 
     @Transactional
@@ -233,6 +378,52 @@ public class SimulationService {
                 simulation.getTotalPatrimony(),
                 deflation
         );
+    }
+
+    // Reprices every position uniformly (including the one just traded, with no reuse of a
+    // price/rate already fetched earlier in buy/sell) so weight and totalAssetValue always
+    // reflect every holding, not just the traded one - nothing else in the codebase derives
+    // these from live prices, they are otherwise only ever copied verbatim to/from a snapshot.
+    private void recalculatePositionsAndTotalValue(Simulation simulation, List<Position> positions) {
+        BigDecimal[] values = new BigDecimal[positions.size()];
+        BigDecimal totalAssetValue = BigDecimal.ZERO;
+
+        for (int i = 0; i < positions.size(); i++) {
+            Position position = positions.get(i);
+            AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
+                    .orElseThrow(() -> new IllegalStateException("No asset catalog entry for asset id " + position.getAssetId()));
+            AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(asset.getTicker(), simulation.getCurrentMonth());
+            BigDecimal price = currentClose(lookup);
+            ExchangeRateLookupResultDTO rate = exchangeRateCacheService.getExchangeRate(
+                    asset.getBaseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+            BigDecimal value = price.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT)
+                    .multiply(rate.close(), MATH_CONTEXT);
+            values[i] = value;
+            totalAssetValue = totalAssetValue.add(value);
+        }
+
+        for (int i = 0; i < positions.size(); i++) {
+            BigDecimal weight = totalAssetValue.signum() == 0
+                    ? BigDecimal.ZERO
+                    : values[i].divide(totalAssetValue, MATH_CONTEXT);
+            positions.get(i).setWeight(weight);
+        }
+
+        simulation.setTotalAssetValue(totalAssetValue);
+    }
+
+    // The series is ascending and bounded at the effective month (the latest cached month if
+    // the target month is beyond it), so the last element is always the correct current-month
+    // close, truncated or not - see AssetCacheService.getAssetSeries.
+    private BigDecimal currentClose(AssetLookupResultDTO lookup) {
+        var series = lookup.series();
+        return series.get(series.size() - 1).close();
+    }
+
+    private PositionResponseDTO toPositionResponse(Position position, AssetCatalog asset) {
+        return new PositionResponseDTO(
+                asset.getTicker(), asset.getName(), position.getQuantity(),
+                position.getCostBasis(), position.getWeight(), position.getTotalDividendsReceived());
     }
 
     private Simulation findOwned(UUID id, User user) {
