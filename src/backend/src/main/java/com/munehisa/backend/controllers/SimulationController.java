@@ -7,6 +7,8 @@ import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TradeRequestDTO;
+import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.infra.RestErrorMessage;
 import com.munehisa.backend.service.SimulationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -168,6 +170,44 @@ public class SimulationController {
             @Valid @RequestBody CashMovementRequestDTO request
     ) {
         return ResponseEntity.ok(simulationService.withdraw(id, request, user));
+    }
+
+    @PostMapping("/{id}/buy")
+    @Operation(summary = "Buy an asset for a simulation", description = "Buys whole units of a ticker for the authenticated user's simulation at the current month's close price, converting cost to the simulation's base currency when the asset's currency differs, then recomputes every position's weight and the simulation's total asset value.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Purchase applied"),
+            @ApiResponse(responseCode = "400", description = "Invalid request body, ticker exists but its start date is after the simulation's current month, or insufficient cash",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller, or the ticker does not exist",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<TradeResponseDTO> buy(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @Valid @RequestBody TradeRequestDTO request
+    ) {
+        return ResponseEntity.ok(simulationService.buy(id, request, user));
+    }
+
+    @PostMapping("/{id}/sell")
+    @Operation(summary = "Sell an asset from a simulation", description = "Sells whole units of a ticker held in the authenticated user's simulation at the current month's close price, removing cost basis proportionally, crediting proceeds to cash, and recomputing every position's weight and the simulation's total asset value. A full sell deletes the position and triggers the shared asset cache's eviction check.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Sale applied"),
+            @ApiResponse(responseCode = "400", description = "Invalid request body, or quantity exceeds the held amount",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<TradeResponseDTO> sell(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @Valid @RequestBody TradeRequestDTO request
+    ) {
+        return ResponseEntity.ok(simulationService.sell(id, request, user));
     }
 
     @PostMapping("/{id}/snapshot")
