@@ -10,6 +10,7 @@ import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
 import com.munehisa.backend.dto.AssetLookupResultDTO;
+import com.munehisa.backend.dto.AssetMonthDataDTO;
 import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
@@ -19,10 +20,14 @@ import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.InflationLookupResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TradeRequestDTO;
+import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
+import com.munehisa.backend.exceptions.InsufficientCashForPurchaseException;
+import com.munehisa.backend.exceptions.InsufficientPositionQuantityException;
 import com.munehisa.backend.exceptions.SimulationNotFoundException;
 import com.munehisa.backend.exceptions.SnapshotNotFoundException;
 import com.munehisa.backend.repository.AssetCatalogRepository;
@@ -421,6 +426,408 @@ class SimulationServiceTest {
         verify(transactionRepository, never()).save(any());
     }
 
+    // --- buy ----------------------------------------------------------------------------------
+
+    @Test
+    void buy_sameCurrency_deductsCashNoConversionAndCreatesPosition() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .buy(simulation.getId(), new TradeRequestDTO("AAPL", 10L), user);
+
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.appliedAmount()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.cashBalance()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.totalPatrimony()));
+        assertEquals("AAPL", response.position().ticker());
+        assertEquals(10, response.position().quantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.position().costBasis()));
+        assertEquals(0, BigDecimal.ONE.compareTo(response.position().weight()));
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        assertEquals(TransactionType.BUY, transactionCaptor.getValue().getType());
+        assertEquals(0, new BigDecimal("500.00").compareTo(transactionCaptor.getValue().getAmount()));
+        assertEquals("AAPL", transactionCaptor.getValue().getTicker());
+        assertEquals(10L, transactionCaptor.getValue().getQuantity());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        assertEquals(1, positionsCaptor.getValue().size());
+        assertEquals(assetId, positionsCaptor.getValue().get(0).getAssetId());
+    }
+
+    @Test
+    void buy_crossCurrency_cashDeductedAndCostBasisReconcileExactly() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "1.00"))));
+        // Check-only figure: converts the whole cash balance BRL -> USD.
+        when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
+        // Separate, opposite-direction figure: actually applied to cash/costBasis.
+        when(exchangeRateCacheService.getExchangeRate("USD", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("USD", "BRL", simulation.getCurrentMonth(), new BigDecimal("5.00")));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .buy(simulation.getId(), new TradeRequestDTO("AAPL", 100L), user);
+
+        // costInAssetCurrency = 1.00 * 100 = 100.00 USD; convertedCash check = 1000.00 * 0.20 = 200.00 USD (passes).
+        // costInBaseCurrency = 100.00 USD * 5.00 = 500.00 BRL - the single value reused below.
+        BigDecimal expectedCostInBaseCurrency = new BigDecimal("500.00");
+        assertEquals(0, expectedCostInBaseCurrency.compareTo(response.appliedAmount()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.cashBalance()));
+
+        // Two distinct directions are queried: the check (base->asset) and the applied cost
+        // (asset->base, queried again during recalculation since this is the only position).
+        verify(exchangeRateCacheService).getExchangeRate("BRL", "USD", simulation.getCurrentMonth());
+        verify(exchangeRateCacheService, atLeastOnce()).getExchangeRate("USD", "BRL", simulation.getCurrentMonth());
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+
+        BigDecimal cashDeducted = new BigDecimal("1000.00").subtract(response.cashBalance());
+        BigDecimal costBasisAdded = positionsCaptor.getValue().get(0).getCostBasis();
+        BigDecimal transactionAmount = transactionCaptor.getValue().getAmount();
+        assertEquals(0, cashDeducted.compareTo(costBasisAdded));
+        assertEquals(0, costBasisAdded.compareTo(transactionAmount));
+        assertEquals(0, expectedCostInBaseCurrency.compareTo(costBasisAdded));
+    }
+
+    @Test
+    void buy_crossCurrencyInsufficientFunds_throwsInsufficientCashForPurchaseExceptionAndDoesNotSave() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "5.00"))));
+        // convertedCash = 1000.00 * 0.20 = 200.00 USD; cost = 5.00 * 100 = 500.00 USD > 200.00.
+        when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
+
+        assertThrows(InsufficientCashForPurchaseException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .buy(simulation.getId(), new TradeRequestDTO("AAPL", 100L), user));
+
+        verify(exchangeRateCacheService, never()).getExchangeRate("USD", "BRL", simulation.getCurrentMonth());
+        verify(assetCatalogRepository, never()).findByTicker(any());
+        verify(simulationRepository, never()).save(any());
+        verify(positionRepository, never()).saveAll(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void buy_unknownTicker_propagatesAssetNotFoundExceptionAndDoesNotSave() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+        when(assetCacheService.getAssetSeries("ZZZZ", simulation.getCurrentMonth()))
+                .thenThrow(new AssetNotFoundException("ZZZZ", new RuntimeException("404")));
+
+        assertThrows(AssetNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .buy(simulation.getId(), new TradeRequestDTO("ZZZZ", 1L), user));
+
+        verifyNoInteractions(exchangeRateCacheService);
+        verify(simulationRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void buy_tickerPredatesStartDate_propagatesAssetPredatesStartDateExceptionAndDoesNotSave() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+        when(assetCacheService.getAssetSeries("TSLA", simulation.getCurrentMonth()))
+                .thenThrow(new AssetPredatesStartDateException("TSLA", simulation.getCurrentMonth(), LocalDate.of(2010, 6, 29)));
+
+        assertThrows(AssetPredatesStartDateException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .buy(simulation.getId(), new TradeRequestDTO("TSLA", 1L), user));
+
+        verifyNoInteractions(exchangeRateCacheService);
+        verify(simulationRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void buy_existingTicker_updatesSamePositionNoDuplicate() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 5, "1.0", "250.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .buy(simulation.getId(), new TradeRequestDTO("AAPL", 10L), user);
+
+        assertEquals(15, response.position().quantity());
+        assertEquals(0, new BigDecimal("750.00").compareTo(response.position().costBasis()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        assertEquals(1, positionsCaptor.getValue().size());
+        assertEquals(existingPosition.getId(), positionsCaptor.getValue().get(0).getId());
+    }
+
+    @Test
+    void buy_withExistingUntouchedPosition_recalculatesItsWeightToo() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID msftAssetId = UUID.randomUUID();
+        UUID aaplAssetId = UUID.randomUUID();
+        Position msftPosition = position(simulation.getId(), msftAssetId, 5, "1.0", "999.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(msftPosition));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00"))));
+        when(assetCacheService.getAssetSeries("MSFT", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "MSFT", "Microsoft Corp.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .buy(simulation.getId(), new TradeRequestDTO("AAPL", 10L), user);
+
+        // MSFT value = 20.00 * 5 = 100.00; AAPL value = 30.00 * 10 = 300.00; total = 400.00.
+        assertEquals(0, new BigDecimal("400.00").compareTo(response.totalAssetValue()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        assertEquals(2, positionsCaptor.getValue().size());
+
+        Position savedMsft = positionsCaptor.getValue().stream().filter(p -> p.getAssetId().equals(msftAssetId)).findFirst().orElseThrow();
+        Position savedAapl = positionsCaptor.getValue().stream().filter(p -> p.getAssetId().equals(aaplAssetId)).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("0.25").compareTo(savedMsft.getWeight()));
+        assertEquals(0, new BigDecimal("0.75").compareTo(savedAapl.getWeight()));
+    }
+
+    @Test
+    void buy_notOwnedOrMissingSimulation_throwsSimulationNotFoundExceptionAndDoesNotSave() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .buy(id, new TradeRequestDTO("AAPL", 1L), user));
+
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService, assetCatalogRepository);
+        verify(simulationRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    // --- sell ---------------------------------------------------------------------------------
+
+    @Test
+    void sell_quantityExceedsHeld_throwsInsufficientPositionQuantityExceptionAndDoesNotSave() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 5, "1.0", "250.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+
+        assertThrows(InsufficientPositionQuantityException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .sell(simulation.getId(), new TradeRequestDTO("AAPL", 10L), user));
+
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService);
+        verify(simulationRepository, never()).save(any());
+        verify(positionRepository, never()).delete(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void sell_neverBoughtTicker_throwsInsufficientPositionQuantityExceptionNotAssetNotFound() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+        when(assetCatalogRepository.findByTicker("ZZZZ")).thenReturn(Optional.empty());
+
+        assertThrows(InsufficientPositionQuantityException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .sell(simulation.getId(), new TradeRequestDTO("ZZZZ", 1L), user));
+
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService);
+    }
+
+    @Test
+    void sell_partial_removesProportionalCostBasisAndAddsProceeds() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .sell(simulation.getId(), new TradeRequestDTO("AAPL", 4L), user);
+
+        // proceeds = 60.00 * 4 = 240.00; costBasisRemoved = 500.00 * 4 / 10 = 200.00.
+        assertEquals(0, new BigDecimal("240.00").compareTo(response.appliedAmount()));
+        assertEquals(0, new BigDecimal("1240.00").compareTo(response.cashBalance()));
+        assertEquals(6, response.position().quantity());
+        assertEquals(0, new BigDecimal("300.00").compareTo(response.position().costBasis()));
+
+        verify(positionRepository, never()).delete(any());
+        verify(assetCacheService, never()).evictIfOrphaned(any());
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
+        assertEquals(0, new BigDecimal("240.00").compareTo(transactionCaptor.getValue().getAmount()));
+        assertEquals(4L, transactionCaptor.getValue().getQuantity());
+    }
+
+    @Test
+    void sell_full_deletesPositionAndTriggersEviction() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TradeResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .sell(simulation.getId(), new TradeRequestDTO("AAPL", 10L), user);
+
+        assertNull(response.position());
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1600.00").compareTo(response.cashBalance()));
+
+        verify(positionRepository).delete(existingPosition);
+        verify(positionRepository).flush();
+        verify(assetCacheService).evictIfOrphaned(assetId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        assertTrue(positionsCaptor.getValue().isEmpty());
+    }
+
+    @Test
+    void sell_partial_withOtherPosition_recalculatesOtherPositionWeightToo() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID aaplAssetId = UUID.randomUUID();
+        UUID msftAssetId = UUID.randomUUID();
+        Position aaplPosition = position(simulation.getId(), aaplAssetId, 10, "0.5", "500.00", "0.00");
+        Position msftPosition = position(simulation.getId(), msftAssetId, 5, "0.5", "999.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(aaplPosition, msftPosition));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
+
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00"))));
+        when(assetCacheService.getAssetSeries("MSFT", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "MSFT", "Microsoft Corp.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .sell(simulation.getId(), new TradeRequestDTO("AAPL", 5L), user);
+
+        // Remaining AAPL value = 30.00 * 5 = 150.00; MSFT value = 20.00 * 5 = 100.00; total = 250.00.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        Position savedMsft = positionsCaptor.getValue().stream().filter(p -> p.getAssetId().equals(msftAssetId)).findFirst().orElseThrow();
+        Position savedAapl = positionsCaptor.getValue().stream().filter(p -> p.getAssetId().equals(aaplAssetId)).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("0.4").compareTo(savedMsft.getWeight()));
+        assertEquals(0, new BigDecimal("0.6").compareTo(savedAapl.getWeight()));
+    }
+
+    @Test
+    void sell_notOwnedOrMissingSimulation_throwsSimulationNotFoundExceptionAndDoesNotSave() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                        .sell(id, new TradeRequestDTO("AAPL", 1L), user));
+
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService, assetCatalogRepository);
+        verify(simulationRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
     // --- createSnapshot ---------------------------------------------------------------------
 
     @Test
@@ -642,13 +1049,22 @@ class SimulationServiceTest {
     }
 
     private AssetCatalog assetCatalog(UUID id, String ticker, String name) {
+        return assetCatalog(id, ticker, name, "USD");
+    }
+
+    private AssetCatalog assetCatalog(UUID id, String ticker, String name, String baseCurrency) {
         AssetCatalog catalog = new AssetCatalog();
         catalog.setId(id);
         catalog.setTicker(ticker);
         catalog.setName(name);
-        catalog.setBaseCurrency("USD");
+        catalog.setBaseCurrency(baseCurrency);
         catalog.setStartDate(LocalDate.of(2000, 1, 1));
         return catalog;
+    }
+
+    private AssetMonthDataDTO assetMonthData(YearMonth month, String close) {
+        BigDecimal closeValue = new BigDecimal(close);
+        return new AssetMonthDataDTO(month, closeValue, closeValue, closeValue, closeValue, 0, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     private Transaction transaction(UUID simulationId, TransactionType type, YearMonth month) {

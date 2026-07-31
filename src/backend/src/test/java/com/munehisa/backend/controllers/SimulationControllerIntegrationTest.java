@@ -16,6 +16,7 @@ import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.InflationLookupResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
 import com.munehisa.backend.dto.dataservice.RawExchangeMonthDataPoint;
@@ -928,6 +929,419 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         CashMovementRequestDTO body = new CashMovementRequestDTO(new BigDecimal("50.00"), false);
 
         mockMvc.perform(post("/simulations/{id}/withdrawals", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- buy ------------------------------------------------------------------------------
+
+    @Test
+    void buy_sameCurrency_returns200DeductsCashAndCreatesPosition() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("2000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 5L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(900.00))
+                .andExpect(jsonPath("$.cashBalance").value(1100.00))
+                .andExpect(jsonPath("$.position.ticker").value("AAPL"))
+                .andExpect(jsonPath("$.position.quantity").value(5));
+
+        assertEquals(0, new BigDecimal("1100.00").compareTo(
+                simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, positions.size());
+        assertEquals(5, positions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("900.00").compareTo(positions.get(0).getCostBasis()));
+        assertEquals(0, BigDecimal.ONE.compareTo(positions.get(0).getWeight()));
+
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, transactions.size());
+        assertEquals(TransactionType.BUY, transactions.get(0).getType());
+        assertEquals(0, new BigDecimal("900.00").compareTo(transactions.get(0).getAmount()));
+        assertEquals(5L, transactions.get(0).getQuantity());
+    }
+
+    @Test
+    void buy_crossCurrency_returns200ConvertsCostReconcilingCashAndCostBasis() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("1000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(
+                List.of(new RawExchangeMonthDataPoint(simulation.getCurrentMonth(),
+                        new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"))));
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk());
+
+        // costInAssetCurrency = 180.00 USD; convertedCash check = 1000.00 * 0.20 = 200.00 USD
+        // (passes); costInBaseCurrency = 180.00 * (1 / 0.20) = 900.00 BRL - the single value
+        // reused below for the cash deduction, the cost basis, and the transaction amount.
+        BigDecimal cashDeducted = new BigDecimal("1000.00").subtract(
+                simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance());
+        assertEquals(0, new BigDecimal("900.00").compareTo(cashDeducted));
+
+        Position position = positionRepository.findBySimulationId(simulation.getId()).get(0);
+        assertEquals(0, cashDeducted.compareTo(position.getCostBasis()));
+
+        Transaction transaction = transactionRepository.findBySimulationId(simulation.getId()).get(0);
+        assertEquals(0, cashDeducted.compareTo(transaction.getAmount()));
+    }
+
+    @Test
+    void buy_crossCurrencyInsufficientFunds_returns400AndDoesNotChangeState() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", new BigDecimal("1000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(
+                List.of(new RawExchangeMonthDataPoint(simulation.getCurrentMonth(),
+                        new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"))));
+        // convertedCash = 1000.00 * 0.20 = 200.00 USD; cost = 180.00 * 2 = 360.00 USD > 200.00.
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 2L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+
+        assertTrue(positionRepository.findBySimulationId(simulation.getId()).isEmpty());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(
+                simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+    }
+
+    @Test
+    void buy_unknownTicker_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        when(dataServiceAssetClient.fetchSeries("ZZZZ")).thenThrow(new AssetNotFoundException("ZZZZ", new RuntimeException("404")));
+        TradeRequestDTO body = new TradeRequestDTO("ZZZZ", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void buy_tickerPredatesStartDate_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        simulation.setCurrentMonth(YearMonth.of(1992, 1));
+        simulation = simulationRepository.save(simulation);
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void buy_existingTicker_updatesSamePositionRowNoDuplicate() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("5000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        Position existing = seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 5L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk());
+
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, positions.size());
+        assertEquals(existing.getId(), positions.get(0).getId());
+        assertEquals(10, positions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("1800.00").compareTo(positions.get(0).getCostBasis()));
+    }
+
+    @Test
+    void buy_withExistingUntouchedPosition_recalculatesItsWeightToo() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("5000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.");
+        AssetCatalog msft = seedAssetCatalog("MSFT", "Microsoft Corp.");
+        seedPosition(simulation.getId(), msft.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 5L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAssetValue").value(1800.00));
+
+        // MSFT value = 180.00 * 5 = 900.00; AAPL value = 180.00 * 5 = 900.00; total = 1800.00.
+        Position reloadedMsft = positionRepository.findBySimulationId(simulation.getId()).stream()
+                .filter(p -> p.getAssetId().equals(msft.getId())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("0.5").compareTo(reloadedMsft.getWeight()));
+    }
+
+    @Test
+    void buy_nonPositiveQuantity_returns400() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 0L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void buy_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void buy_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void buy_withoutToken_returns401() throws Exception {
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/buy", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- sell -----------------------------------------------------------------------------
+
+    @Test
+    void sell_quantityExceedsHeld_returns400AndDoesNotChangeState() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 10L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(5, positionRepository.findBySimulationId(simulation.getId()).get(0).getQuantity());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(
+                simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+    }
+
+    @Test
+    void sell_neverBoughtTicker_returns400NotAssetNotFound() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        TradeRequestDTO body = new TradeRequestDTO("ZZZZ", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void sell_partial_returns200UpdatesPositionAndCashBalance() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 10, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 4L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedAmount").value(720.00))
+                .andExpect(jsonPath("$.cashBalance").value(1720.00));
+
+        // costBasisRemoved = 900.00 * 4 / 10 = 360.00; remaining costBasis = 540.00; qty = 6.
+        Position position = positionRepository.findBySimulationId(simulation.getId()).get(0);
+        assertEquals(6, position.getQuantity());
+        assertEquals(0, new BigDecimal("540.00").compareTo(position.getCostBasis()));
+
+        List<Transaction> transactions = transactionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, transactions.size());
+        assertEquals(TransactionType.SELL, transactions.get(0).getType());
+        assertEquals(0, new BigDecimal("720.00").compareTo(transactions.get(0).getAmount()));
+        assertEquals(4L, transactions.get(0).getQuantity());
+    }
+
+    @Test
+    void sell_partial_withOtherPosition_recalculatesOtherPositionWeightToo() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        AssetCatalog msft = seedAssetCatalog("MSFT", "Microsoft Corp.");
+        seedPosition(simulation.getId(), aapl.getId(), 10, new BigDecimal("900.00"), BigDecimal.ZERO);
+        seedPosition(simulation.getId(), msft.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 5L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                // Remaining AAPL value = 180.00 * 5 = 900.00; MSFT value = 180.00 * 5 = 900.00; total = 1800.00.
+                .andExpect(jsonPath("$.totalAssetValue").value(1800.00));
+
+        Position reloadedMsft = positionRepository.findBySimulationId(simulation.getId()).stream()
+                .filter(p -> p.getAssetId().equals(msft.getId())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("0.5").compareTo(reloadedMsft.getWeight()));
+    }
+
+    @Test
+    void sell_full_returns200DeletesPositionRowAndEvictsOrphanedAsset() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 10, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 10L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.position").doesNotExist())
+                .andExpect(jsonPath("$.totalAssetValue").value(0));
+
+        assertTrue(positionRepository.findBySimulationId(simulation.getId()).isEmpty());
+        assertTrue(assetCatalogRepository.findByTicker("AAPL").isEmpty());
+    }
+
+    @Test
+    void sell_full_keepsAssetCatalogWhenOtherSimulationStillHolds() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 10, new BigDecimal("900.00"), BigDecimal.ZERO);
+
+        User otherUser = createUser(u -> u.setEmail("grace@example.com"));
+        Simulation otherSimulation = seedSimulation(otherUser.getId(), "Other plan", "USD");
+        seedPosition(otherSimulation.getId(), aapl.getId(), 3, new BigDecimal("270.00"), BigDecimal.ZERO);
+
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 10L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk());
+
+        assertTrue(positionRepository.findBySimulationId(simulation.getId()).isEmpty());
+        assertTrue(assetCatalogRepository.findByTicker("AAPL").isPresent());
+    }
+
+    @Test
+    void sell_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void sell_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNotFound());
+
+        assertEquals(5, positionRepository.findBySimulationId(simulation.getId()).get(0).getQuantity());
+    }
+
+    @Test
+    void sell_withoutToken_returns401() throws Exception {
+        TradeRequestDTO body = new TradeRequestDTO("AAPL", 1L);
+
+        mockMvc.perform(post("/simulations/{id}/sell", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isUnauthorized());
