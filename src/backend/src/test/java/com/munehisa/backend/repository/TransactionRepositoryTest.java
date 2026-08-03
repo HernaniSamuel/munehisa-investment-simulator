@@ -58,7 +58,7 @@ class TransactionRepositoryTest extends SharedPostgresContainer {
         transaction.setAmount(new BigDecimal("1800.00"));
         transaction.setTicker("AAPL");
         transaction.setAssetName("Apple Inc.");
-        transaction.setQuantity(10L);
+        transaction.setQuantity(BigDecimal.valueOf(10));
         return transactionRepository.saveAndFlush(transaction);
     }
 
@@ -95,7 +95,7 @@ class TransactionRepositoryTest extends SharedPostgresContainer {
         assertEquals(0, new BigDecimal("1800.00").compareTo(loaded.getAmount()));
         assertEquals("AAPL", loaded.getTicker());
         assertEquals("Apple Inc.", loaded.getAssetName());
-        assertEquals(10L, loaded.getQuantity());
+        assertEquals(0, new BigDecimal("10").compareTo(loaded.getQuantity()));
     }
 
     @Test
@@ -108,7 +108,7 @@ class TransactionRepositoryTest extends SharedPostgresContainer {
         assertEquals(TransactionType.SELL, loaded.getType());
         assertEquals("AAPL", loaded.getTicker());
         assertEquals("Apple Inc.", loaded.getAssetName());
-        assertEquals(10L, loaded.getQuantity());
+        assertEquals(0, new BigDecimal("10").compareTo(loaded.getQuantity()));
     }
 
     @Test

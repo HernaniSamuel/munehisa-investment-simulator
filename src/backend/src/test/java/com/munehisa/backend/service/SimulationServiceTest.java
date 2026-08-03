@@ -464,7 +464,7 @@ class SimulationServiceTest {
         assertEquals(TransactionType.BUY, transactionCaptor.getValue().getType());
         assertEquals(0, new BigDecimal("500.00").compareTo(transactionCaptor.getValue().getAmount()));
         assertEquals("AAPL", transactionCaptor.getValue().getTicker());
-        assertEquals(10L, transactionCaptor.getValue().getQuantity());
+        assertEquals(0, new BigDecimal("10").compareTo(transactionCaptor.getValue().getQuantity()));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
@@ -741,7 +741,7 @@ class SimulationServiceTest {
         verify(transactionRepository).save(transactionCaptor.capture());
         assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
         assertEquals(0, new BigDecimal("240.00").compareTo(transactionCaptor.getValue().getAmount()));
-        assertEquals(4L, transactionCaptor.getValue().getQuantity());
+        assertEquals(0, new BigDecimal("4").compareTo(transactionCaptor.getValue().getQuantity()));
     }
 
     @Test
@@ -1391,7 +1391,7 @@ class SimulationServiceTest {
             transaction.setAssetName("Apple Inc.");
         }
         if (type == TransactionType.BUY || type == TransactionType.SELL) {
-            transaction.setQuantity(1L);
+            transaction.setQuantity(BigDecimal.ONE);
         }
         return transaction;
     }

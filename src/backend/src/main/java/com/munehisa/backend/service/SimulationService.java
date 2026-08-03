@@ -180,7 +180,7 @@ public class SimulationService {
         transaction.setAmount(costInBaseCurrency);
         transaction.setTicker(lookup.ticker());
         transaction.setAssetName(lookup.name());
-        transaction.setQuantity(request.quantity());
+        transaction.setQuantity(BigDecimal.valueOf(request.quantity()));
         transactionRepository.save(transaction);
 
         recalculatePositionsAndTotalValue(simulation, positions);
@@ -249,7 +249,7 @@ public class SimulationService {
         transaction.setAmount(proceeds);
         transaction.setTicker(asset.getTicker());
         transaction.setAssetName(asset.getName());
-        transaction.setQuantity(request.quantity());
+        transaction.setQuantity(BigDecimal.valueOf(request.quantity()));
         transactionRepository.save(transaction);
 
         recalculatePositionsAndTotalValue(simulation, positions);
