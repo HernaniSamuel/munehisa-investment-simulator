@@ -395,6 +395,7 @@ public class SimulationService {
 
         positionRepository.saveAll(positions);
         simulationRepository.save(simulation);
+        writeSnapshot(simulation);
 
         List<AdvanceMonthPositionDTO> positionResults = new ArrayList<>();
         for (int i = 0; i < positions.size(); i++) {
@@ -413,7 +414,14 @@ public class SimulationService {
     @Transactional
     public void createSnapshot(UUID id, User user) {
         Simulation simulation = findOwned(id, user);
+        writeSnapshot(simulation);
+    }
 
+    // Shared by createSnapshot and advanceMonth's end-of-month auto-snapshot: takes an
+    // already-loaded Simulation so advanceMonth doesn't have to re-run findOwned on the row
+    // it already holds. A private call isn't proxied by Spring AOP, so this always runs
+    // inside whichever @Transactional method invoked it - no separate transaction boundary.
+    private void writeSnapshot(Simulation simulation) {
         Snapshot snapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseGet(Snapshot::new);
         snapshot.setSimulationId(simulation.getId());
         snapshot.setCashBalance(simulation.getCashBalance());
