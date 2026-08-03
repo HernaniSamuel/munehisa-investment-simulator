@@ -290,7 +290,10 @@ public class SimulationService {
             // truncation-aware series, exactly what currentClose() reads for price alone.
             AssetMonthDataDTO currentRow = lookup.series().get(lookup.series().size() - 1);
             BigDecimal priceInBase = currentRow.close().multiply(rate.close(), MATH_CONTEXT);
-            BigDecimal dividendInBase = currentRow.dividends()
+            // dividends is nullable (the data-service reports it as null when a month has none),
+            // unlike close which is always populated - treated as zero rather than propagating a NPE.
+            BigDecimal dividendPerShare = currentRow.dividends() == null ? BigDecimal.ZERO : currentRow.dividends();
+            BigDecimal dividendInBase = dividendPerShare
                     .multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT)
                     .multiply(rate.close(), MATH_CONTEXT);
 
