@@ -43,6 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -272,7 +273,7 @@ public class SimulationService {
         }
         simulation.setCurrentMonth(newMonth);
 
-        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        List<Position> positions = new ArrayList<>(positionRepository.findBySimulationId(simulation.getId()));
         List<AssetCatalog> assets = new ArrayList<>();
         List<BigDecimal> pricesInBase = new ArrayList<>();
         List<Boolean> truncatedFlags = new ArrayList<>();
@@ -280,7 +281,10 @@ public class SimulationService {
         List<BigDecimal> values = new ArrayList<>();
         BigDecimal totalAssetValue = BigDecimal.ZERO;
 
-        for (Position position : positions) {
+        // Snapshot copy to iterate: a reverse split that zeroes a position removes it from
+        // `positions` mid-loop (mirroring sell()'s full-sell removal), which would throw
+        // ConcurrentModificationException if iterating that same list directly.
+        for (Position position : new ArrayList<>(positions)) {
             AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
                     .orElseThrow(() -> new IllegalStateException("No asset catalog entry for asset id " + position.getAssetId()));
 
@@ -288,7 +292,7 @@ public class SimulationService {
             ExchangeRateLookupResultDTO rate = exchangeRateCacheService.getExchangeRate(
                     asset.getBaseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
 
-            // Same row backs both price and dividend - the last element of the bounded,
+            // Same row backs price, dividend, and splits - the last element of the bounded,
             // truncation-aware series, exactly what currentClose() reads for price alone.
             AssetMonthDataDTO currentRow = lookup.series().get(lookup.series().size() - 1);
             BigDecimal priceInBase = currentRow.close().multiply(rate.close(), MATH_CONTEXT);
@@ -311,6 +315,58 @@ public class SimulationService {
                 dividendTransaction.setTicker(asset.getTicker());
                 dividendTransaction.setAssetName(asset.getName());
                 transactionRepository.save(dividendTransaction);
+            }
+
+            // splits is nullable, same convention as dividends above - null (or 0, its
+            // reported "no split" value) is only ever used as a gate here, never as a
+            // multiplier, so it can't be mistaken for a real split factor.
+            BigDecimal splitFactor = currentRow.splits() == null ? BigDecimal.ZERO : currentRow.splits();
+            if (splitFactor.signum() != 0) {
+                // Prices aren't split-adjusted, only held quantity is - forward and reverse
+                // splits both just multiply by the factor; whether that produces a fractional
+                // remainder (always for a reverse split, never for a clean forward split) is
+                // what decides whether cash-in-lieu applies, not the direction itself.
+                BigDecimal preFloorQuantity = splitFactor.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
+                BigDecimal flooredQuantityDecimal = preFloorQuantity.setScale(0, RoundingMode.FLOOR);
+                long flooredQuantity = flooredQuantityDecimal.longValueExact();
+                BigDecimal fractionalRemainder = preFloorQuantity.subtract(flooredQuantityDecimal, MATH_CONTEXT);
+
+                if (fractionalRemainder.signum() != 0) {
+                    // Same average-cost formula as a partial sell: the fractional share is a
+                    // forced partial (or full) sale, so cost basis is reduced by the same
+                    // proportion of pre-floor quantity that was cashed out.
+                    BigDecimal costBasisRemoved = position.getCostBasis()
+                            .multiply(fractionalRemainder, MATH_CONTEXT)
+                            .divide(preFloorQuantity, MATH_CONTEXT);
+                    // Valued at the same price just used to reprice this position, already in
+                    // base currency.
+                    BigDecimal cashInLieu = fractionalRemainder.multiply(priceInBase, MATH_CONTEXT);
+
+                    simulation.setCashBalance(simulation.getCashBalance().add(cashInLieu));
+                    position.setCostBasis(position.getCostBasis().subtract(costBasisRemoved));
+
+                    Transaction splitTransaction = new Transaction();
+                    splitTransaction.setSimulationId(simulation.getId());
+                    splitTransaction.setType(TransactionType.SELL);
+                    splitTransaction.setMonth(simulation.getCurrentMonth());
+                    splitTransaction.setAmount(cashInLieu);
+                    splitTransaction.setTicker(asset.getTicker());
+                    splitTransaction.setAssetName(asset.getName());
+                    splitTransaction.setQuantity(fractionalRemainder);
+                    transactionRepository.save(splitTransaction);
+                }
+
+                position.setQuantity(flooredQuantity);
+
+                if (flooredQuantity == 0) {
+                    positions.remove(position);
+                    positionRepository.delete(position);
+                    // Flushed immediately, mirroring sell()'s full-sell path, so the eviction
+                    // check's existsByAssetId query below is guaranteed to see this delete.
+                    positionRepository.flush();
+                    assetCacheService.evictIfOrphaned(asset.getId());
+                    continue;
+                }
             }
 
             // Value is derived from priceInBase above, not a fresh lookup - reusing
