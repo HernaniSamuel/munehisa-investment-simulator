@@ -277,6 +277,8 @@ public class SimulationService {
         List<BigDecimal> pricesInBase = new ArrayList<>();
         List<Boolean> truncatedFlags = new ArrayList<>();
         List<BigDecimal> dividendsInBase = new ArrayList<>();
+        List<BigDecimal> values = new ArrayList<>();
+        BigDecimal totalAssetValue = BigDecimal.ZERO;
 
         for (Position position : positions) {
             AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
@@ -311,13 +313,30 @@ public class SimulationService {
                 transactionRepository.save(dividendTransaction);
             }
 
+            // Value is derived from priceInBase above, not a fresh lookup - reusing
+            // recalculatePositionsAndTotalValue here would re-fetch each position's price/rate a
+            // second time, and for a position whose price is truncated or mid-refresh-retry, that
+            // second fetch is not guaranteed to resolve identically to the first (see the
+            // note on AssetCacheService.ensureFreshData), which would let the reported per-position
+            // price/wasTruncated diverge from what actually backs totalAssetValue/weight.
+            BigDecimal value = priceInBase.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
+            totalAssetValue = totalAssetValue.add(value);
+
             assets.add(asset);
             pricesInBase.add(priceInBase);
             truncatedFlags.add(lookup.truncated());
             dividendsInBase.add(dividendInBase);
+            values.add(value);
         }
 
-        recalculatePositionsAndTotalValue(simulation, positions);
+        for (int i = 0; i < positions.size(); i++) {
+            BigDecimal weight = totalAssetValue.signum() == 0
+                    ? BigDecimal.ZERO
+                    : values.get(i).divide(totalAssetValue, MATH_CONTEXT);
+            positions.get(i).setWeight(weight);
+        }
+        simulation.setTotalAssetValue(totalAssetValue);
+
         positionRepository.saveAll(positions);
         simulationRepository.save(simulation);
 
