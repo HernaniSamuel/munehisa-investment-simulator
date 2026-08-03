@@ -88,6 +88,11 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(FutureSimulationCurrentMonthException.class)
+    public ResponseEntity<RestErrorMessage> futureSimulationCurrentMonthHandler(FutureSimulationCurrentMonthException exception) {
+        return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(SnapshotNotFoundException.class)
     public ResponseEntity<RestErrorMessage> snapshotNotFoundHandler(SnapshotNotFoundException exception) {
         return buildErrorResponse(exception, HttpStatus.BAD_REQUEST);
