@@ -1627,10 +1627,13 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         // A snapshot from a prior, already-completed advance - this must survive a failed
         // advance untouched, proving the failure doesn't partially overwrite it either.
         Snapshot existingSnapshot = seedSnapshot(simulation.getId(), new BigDecimal("500.00"), new BigDecimal("300.00"));
+        // Price change, a dividend, and a clean 2-for-1 forward split all in the same month,
+        // so the failed advance below has price/dividend/split changes to roll back, not just
+        // a reprice.
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), new BigDecimal("2")))));
         // Simulates an unrecoverable failure in the snapshot step itself, after reprice,
         // dividend, and split handling have all already run - proves the shared
         // @Transactional boundary rolls back everything, not just the snapshot write.
@@ -1644,6 +1647,14 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         assertEquals(YearMonth.of(2024, 1), reloaded.getCurrentMonth());
         assertEquals(0, new BigDecimal("1000.00").compareTo(reloaded.getCashBalance()));
         assertTrue(transactionRepository.findBySimulationId(simulation.getId()).isEmpty());
+
+        // The 2-for-1 split (5 -> 10 shares) and the dividend credit must not have persisted
+        // either - the position is exactly as it was before the advance was attempted.
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, positions.size());
+        assertEquals(5, positions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("900.00").compareTo(positions.get(0).getCostBasis()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(positions.get(0).getTotalDividendsReceived()));
 
         Snapshot reloadedSnapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseThrow();
         assertEquals(existingSnapshot.getId(), reloadedSnapshot.getId());
