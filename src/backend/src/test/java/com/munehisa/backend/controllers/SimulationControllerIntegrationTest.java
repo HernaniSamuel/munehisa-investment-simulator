@@ -196,7 +196,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         return snapshotPositionRepository.save(snapshotPosition);
     }
 
-    private Transaction seedTransaction(UUID simulationId, TransactionType type, YearMonth month, String ticker, String assetName, Long quantity) {
+    private Transaction seedTransaction(UUID simulationId, TransactionType type, YearMonth month, String ticker, String assetName, BigDecimal quantity) {
         Transaction transaction = new Transaction();
         transaction.setSimulationId(simulationId);
         transaction.setType(type);
@@ -972,7 +972,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         assertEquals(1, transactions.size());
         assertEquals(TransactionType.BUY, transactions.get(0).getType());
         assertEquals(0, new BigDecimal("900.00").compareTo(transactions.get(0).getAmount()));
-        assertEquals(5L, transactions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("5").compareTo(transactions.get(0).getQuantity()));
     }
 
     @Test
@@ -1232,7 +1232,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         assertEquals(1, transactions.size());
         assertEquals(TransactionType.SELL, transactions.get(0).getType());
         assertEquals(0, new BigDecimal("720.00").compareTo(transactions.get(0).getAmount()));
-        assertEquals(4L, transactions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("4").compareTo(transactions.get(0).getQuantity()));
     }
 
     @Test
@@ -1688,7 +1688,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         seedPosition(simulation.getId(), msft.getId(), 4, new BigDecimal("200.00"), BigDecimal.ZERO);
         seedTransaction(simulation.getId(), TransactionType.DEPOSIT, simulation.getCurrentMonth(), null, null, null);
         seedTransaction(simulation.getId(), TransactionType.DIVIDEND, simulation.getCurrentMonth(), "AAPL", "Apple Inc.", null);
-        seedTransaction(simulation.getId(), TransactionType.BUY, simulation.getCurrentMonth(), "MSFT", "Microsoft Corp.", 4L);
+        seedTransaction(simulation.getId(), TransactionType.BUY, simulation.getCurrentMonth(), "MSFT", "Microsoft Corp.", BigDecimal.valueOf(4));
 
         MvcResult result = mockMvc.perform(post("/simulations/{id}/reset", simulation.getId()).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())

@@ -464,7 +464,7 @@ class SimulationServiceTest {
         assertEquals(TransactionType.BUY, transactionCaptor.getValue().getType());
         assertEquals(0, new BigDecimal("500.00").compareTo(transactionCaptor.getValue().getAmount()));
         assertEquals("AAPL", transactionCaptor.getValue().getTicker());
-        assertEquals(10L, transactionCaptor.getValue().getQuantity());
+        assertEquals(0, new BigDecimal("10").compareTo(transactionCaptor.getValue().getQuantity()));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
@@ -741,7 +741,7 @@ class SimulationServiceTest {
         verify(transactionRepository).save(transactionCaptor.capture());
         assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
         assertEquals(0, new BigDecimal("240.00").compareTo(transactionCaptor.getValue().getAmount()));
-        assertEquals(4L, transactionCaptor.getValue().getQuantity());
+        assertEquals(0, new BigDecimal("4").compareTo(transactionCaptor.getValue().getQuantity()));
     }
 
     @Test
@@ -1136,6 +1136,210 @@ class SimulationServiceTest {
         verify(transactionRepository, never()).save(any());
     }
 
+    @Test
+    void advanceMonth_forwardSplit_multipliesQuantityCorrectly() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // 4-for-1 forward split: 10 shares * 4 = 40, always a whole number, no cash-in-lieu.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "55.00", "0.00", "4"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(40, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("2200.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        assertEquals(40, position.getQuantity());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_reverseSplitWithRemainder_reducesCostBasisProportionallyAndRecordsSellTransaction() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 23, "1.0", "2300.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // 1-for-10 reverse split: 23 shares * 0.1 = 2.3, floored to 2, remainder 0.3.
+        // costBasisRemoved = 2300.00 * 0.3 / 2.3 = 300.00; cashInLieu = 0.3 * 10.00 = 3.00.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(2, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("2000.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("20.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1003.00").compareTo(response.cashBalance()));
+        assertEquals(2, position.getQuantity());
+        assertEquals(0, new BigDecimal("2000.00").compareTo(position.getCostBasis()));
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
+        assertEquals("AAPL", transactionCaptor.getValue().getTicker());
+        assertEquals(0, new BigDecimal("3.00").compareTo(transactionCaptor.getValue().getAmount()));
+        assertEquals(0, new BigDecimal("0.3").compareTo(transactionCaptor.getValue().getQuantity()));
+    }
+
+    @Test
+    void advanceMonth_reverseSplitFloorsToZero_deletesPositionAndTriggersEviction() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        // The issue's own worked example: 3 shares, R$300 cost basis, 1-for-20 reverse split.
+        Position position = position(simulation.getId(), assetId, 3, "1.0", "300.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // 3 * 0.05 = 0.15, floored to 0 - the whole position is cashed out via cash-in-lieu.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "100.00", "0.00", "0.05"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(0, response.positions().size());
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalAssetValue()));
+        // cashInLieu = 0.15 * 100.00 = 15.00.
+        assertEquals(0, new BigDecimal("1015.00").compareTo(response.cashBalance()));
+
+        verify(positionRepository).delete(position);
+        verify(positionRepository).flush();
+        verify(assetCacheService).evictIfOrphaned(assetId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Position>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(positionRepository).saveAll(positionsCaptor.capture());
+        assertTrue(positionsCaptor.getValue().isEmpty());
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
+        // 100% of the cost basis was cashed out - not asserted directly since the Position row
+        // is deleted, but costBasisRemoved's proportion (0.15 / 0.15) is exercised regardless.
+        assertEquals(0, new BigDecimal("15.00").compareTo(transactionCaptor.getValue().getAmount()));
+        assertEquals(0, new BigDecimal("0.15").compareTo(transactionCaptor.getValue().getQuantity()));
+    }
+
+    @Test
+    void advanceMonth_reverseSplitWithNoRemainder_updatesQuantityWithoutCashInLieuOrTransaction() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 20, "1.0", "1000.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // 1-for-10 reverse split dividing evenly: 20 * 0.1 = 2.0 exactly, no fractional remainder.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(2, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        assertEquals(2, position.getQuantity());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(position.getCostBasis()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_splitCombinedWithDividend_dividendUsesPreSplitQuantityAndBothTransactionsRecorded() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 23, "1.0", "2300.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // dividendInBase = 0.10/share * 23 shares (pre-split) = 2.30. Split as in the
+        // remainder test above: 23 * 0.1 = 2.3, floored to 2, remainder 0.3, cashInLieu = 3.00.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "10.00", "0.10", "0.1"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(0, new BigDecimal("2.30").compareTo(response.positions().get(0).dividendReceived()));
+        assertEquals(2, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("2000.00").compareTo(response.positions().get(0).costBasis()));
+        // cashBalance = 1000.00 (start) + 2.30 (dividend) + 3.00 (cash-in-lieu) = 1005.30.
+        assertEquals(0, new BigDecimal("1005.30").compareTo(response.cashBalance()));
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(transactionCaptor.capture());
+        List<Transaction> saved = transactionCaptor.getAllValues();
+        Transaction dividendTransaction = saved.stream().filter(t -> t.getType() == TransactionType.DIVIDEND).findFirst().orElseThrow();
+        Transaction sellTransaction = saved.stream().filter(t -> t.getType() == TransactionType.SELL).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("2.30").compareTo(dividendTransaction.getAmount()));
+        assertEquals(0, new BigDecimal("3.00").compareTo(sellTransaction.getAmount()));
+        assertEquals(0, new BigDecimal("0.3").compareTo(sellTransaction.getQuantity()));
+    }
+
+    @Test
+    void advanceMonth_nullSplitsFromDataService_treatedAsNoSplitNotNullPointerException() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // The data-service reports a null (not zero) splits value for months with none - same
+        // shape as advanceMonth_nullDividendFromDataService_treatedAsZeroNotNullPointerException.
+        BigDecimal close = new BigDecimal("55.00");
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(10, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        verify(transactionRepository, never()).save(any());
+    }
+
     // --- createSnapshot ---------------------------------------------------------------------
 
     @Test
@@ -1375,8 +1579,13 @@ class SimulationServiceTest {
     }
 
     private AssetMonthDataDTO assetMonthData(YearMonth month, String close, String dividend) {
+        return assetMonthData(month, close, dividend, "0");
+    }
+
+    private AssetMonthDataDTO assetMonthData(YearMonth month, String close, String dividend, String splits) {
         BigDecimal closeValue = new BigDecimal(close);
-        return new AssetMonthDataDTO(month, closeValue, closeValue, closeValue, closeValue, 0, new BigDecimal(dividend), BigDecimal.ZERO);
+        return new AssetMonthDataDTO(
+                month, closeValue, closeValue, closeValue, closeValue, 0, new BigDecimal(dividend), new BigDecimal(splits));
     }
 
     private Transaction transaction(UUID simulationId, TransactionType type, YearMonth month) {
@@ -1391,7 +1600,7 @@ class SimulationServiceTest {
             transaction.setAssetName("Apple Inc.");
         }
         if (type == TransactionType.BUY || type == TransactionType.SELL) {
-            transaction.setQuantity(1L);
+            transaction.setQuantity(BigDecimal.ONE);
         }
         return transaction;
     }

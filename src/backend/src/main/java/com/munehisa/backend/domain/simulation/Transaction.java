@@ -49,5 +49,5 @@ public class Transaction {
     @Column(name = "asset_name")
     private String assetName;
 
-    private Long quantity;
+    private BigDecimal quantity;
 }
