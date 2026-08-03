@@ -38,6 +38,7 @@ import com.munehisa.backend.repository.SimulationRepository;
 import com.munehisa.backend.repository.SnapshotPositionRepository;
 import com.munehisa.backend.repository.SnapshotRepository;
 import com.munehisa.backend.repository.TransactionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -96,6 +97,24 @@ class SimulationServiceTest {
 
     @Mock
     private ExchangeRateCacheService exchangeRateCacheService;
+
+    @BeforeEach
+    void stubSnapshotWriteDefaults() {
+        // advanceMonth now ends every successful run with a snapshot write (issue #59); most
+        // advanceMonth tests below don't care about that side effect, so these lenient
+        // defaults keep them passing without per-test boilerplate. lenient() keeps strict
+        // stubbing from flagging them as unused in tests whose own mocked failure happens
+        // before writeSnapshot is ever reached.
+        lenient().when(snapshotRepository.findBySimulationId(any())).thenReturn(Optional.empty());
+        lenient().when(snapshotRepository.save(any(Snapshot.class))).thenAnswer(invocation -> {
+            Snapshot saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
+        lenient().when(snapshotPositionRepository.findBySnapshotId(any())).thenReturn(List.of());
+    }
 
     private SimulationService buildService(Clock clock) {
         return new SimulationService(simulationRepository, transactionRepository, inflationDeflationService, clock,
@@ -1338,6 +1357,67 @@ class SimulationServiceTest {
         assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
         assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
         verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_successfulAdvance_writesSnapshotMatchingNewState() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).advanceMonth(simulation.getId(), user);
+
+        ArgumentCaptor<Snapshot> snapshotCaptor = ArgumentCaptor.forClass(Snapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        assertEquals(simulation.getId(), snapshotCaptor.getValue().getSimulationId());
+        assertEquals(0, simulation.getCashBalance().compareTo(snapshotCaptor.getValue().getCashBalance()));
+        assertEquals(0, new BigDecimal("600.00").compareTo(snapshotCaptor.getValue().getTotalAssetValue()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<SnapshotPosition>> positionsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(snapshotPositionRepository).saveAll(positionsCaptor.capture());
+        List<SnapshotPosition> saved = positionsCaptor.getValue();
+        assertEquals(1, saved.size());
+        assertEquals("AAPL", saved.get(0).getTicker());
+        assertEquals(10, saved.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(saved.get(0).getCostBasis()));
+    }
+
+    @Test
+    void advanceMonth_snapshotStepFailure_propagatesAfterPositionAndSimulationSaves() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+        // Simulates an unrecoverable failure in the snapshot step itself, after the reprice
+        // loop has already issued its position/simulation saves - real rollback of those
+        // already-issued calls is exercised at the integration level, not here, since this is
+        // a Mockito-only unit test that doesn't run inside a real @Transactional boundary.
+        when(snapshotRepository.save(any(Snapshot.class))).thenThrow(new RuntimeException("boom"));
+
+        assertThrows(RuntimeException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).advanceMonth(simulation.getId(), user));
+
+        verify(positionRepository).saveAll(any());
+        verify(simulationRepository).save(any());
+        verify(snapshotPositionRepository, never()).saveAll(any());
     }
 
     // --- createSnapshot ---------------------------------------------------------------------

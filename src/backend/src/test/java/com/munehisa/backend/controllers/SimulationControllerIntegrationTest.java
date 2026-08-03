@@ -54,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -73,7 +74,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     private SimulationRepository simulationRepository;
     @MockitoSpyBean
     private TransactionRepository transactionRepository;
-    @Autowired
+    @MockitoSpyBean
     private SnapshotRepository snapshotRepository;
     @Autowired
     private SnapshotPositionRepository snapshotPositionRepository;
@@ -1583,6 +1584,148 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     void advance_withoutToken_returns401() throws Exception {
         mockMvc.perform(post("/simulations/{id}/advance", UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void advance_ownSimulation_createsSnapshotMatchingPostAdvanceState() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // price = 200.00 * 5 shares = 1000.00; dividend = 2.00/share * 5 = 10.00 credited to
+        // the 1000.00 seeded cash, matching advance_ownSimulation_...RecalculatesTotals above.
+        Snapshot snapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("1010.00").compareTo(snapshot.getCashBalance()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(snapshot.getTotalAssetValue()));
+
+        List<SnapshotPosition> snapshotPositions = snapshotPositionRepository.findBySnapshotId(snapshot.getId());
+        assertEquals(1, snapshotPositions.size());
+        assertEquals("AAPL", snapshotPositions.get(0).getTicker());
+        assertEquals(5, snapshotPositions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("900.00").compareTo(snapshotPositions.get(0).getCostBasis()));
+    }
+
+    @Test
+    void advance_snapshotStepFailure_rollsBackEntireAdvanceAndLeavesExistingSnapshotUntouched() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        // A snapshot from a prior, already-completed advance - this must survive a failed
+        // advance untouched, proving the failure doesn't partially overwrite it either.
+        Snapshot existingSnapshot = seedSnapshot(simulation.getId(), new BigDecimal("500.00"), new BigDecimal("300.00"));
+        // Price change, a dividend, and a clean 2-for-1 forward split all in the same month,
+        // so the failed advance below has price/dividend/split changes to roll back, not just
+        // a reprice.
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), new BigDecimal("2")))));
+        // Simulates an unrecoverable failure in the snapshot step itself, after reprice,
+        // dividend, and split handling have all already run - proves the shared
+        // @Transactional boundary rolls back everything, not just the snapshot write.
+        doThrow(new RuntimeException("simulated snapshot failure")).when(snapshotRepository).save(any(Snapshot.class));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isInternalServerError());
+
+        Simulation reloaded = simulationRepository.findById(simulation.getId()).orElseThrow();
+        assertEquals(YearMonth.of(2024, 1), reloaded.getCurrentMonth());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(reloaded.getCashBalance()));
+        assertTrue(transactionRepository.findBySimulationId(simulation.getId()).isEmpty());
+
+        // The 2-for-1 split (5 -> 10 shares) and the dividend credit must not have persisted
+        // either - the position is exactly as it was before the advance was attempted.
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, positions.size());
+        assertEquals(5, positions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("900.00").compareTo(positions.get(0).getCostBasis()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(positions.get(0).getTotalDividendsReceived()));
+
+        Snapshot reloadedSnapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseThrow();
+        assertEquals(existingSnapshot.getId(), reloadedSnapshot.getId());
+        assertEquals(0, new BigDecimal("500.00").compareTo(reloadedSnapshot.getCashBalance()));
+        assertEquals(0, new BigDecimal("300.00").compareTo(reloadedSnapshot.getTotalAssetValue()));
+    }
+
+    @Test
+    void advance_sequentialAdvances_onlyLatestSnapshotValidForReset() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        // Both months are returned by the same stub - the first advance's refresh (month
+        // 1 -> 2) caches both rows, so the second advance (month 2 -> 3) resolves March
+        // from cache without needing a second fetchSeries stub.
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(
+                        new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                                new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null),
+                        new RawAssetMonthDataPoint(YearMonth.of(2024, 3), new BigDecimal("220.00"), new BigDecimal("220.00"),
+                                new BigDecimal("220.00"), new BigDecimal("220.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+
+        // Advance 1: month 1 -> 2. Snapshot now reflects month 2's opening state
+        // (cash 1000.00, totalAssetValue 1000.00) - about to be overwritten below.
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // Advance 2: month 2 -> 3. Dividend (2.00/share * 5 = 10.00) makes month 3's cash
+        // distinguishable from both month 1's and month 2's snapshot cash (both 1000.00).
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        long snapshotCountForSimulation = snapshotRepository.findAll().stream()
+                .filter(s -> s.getSimulationId().equals(simulation.getId()))
+                .count();
+        assertEquals(1, snapshotCountForSimulation);
+
+        Snapshot snapshot = snapshotRepository.findBySimulationId(simulation.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("1010.00").compareTo(snapshot.getCashBalance()));
+        assertEquals(0, new BigDecimal("1100.00").compareTo(snapshot.getTotalAssetValue()));
+
+        // A further mutation in month 3, after the snapshot was taken, so reset has
+        // something to actually undo.
+        CashMovementRequestDTO deposit = new CashMovementRequestDTO(new BigDecimal("500.00"), false);
+        mockMvc.perform(post("/simulations/{id}/deposits", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(deposit)))
+                .andExpect(status().isOk());
+        assertEquals(0, new BigDecimal("1510.00").compareTo(
+                simulationRepository.findById(simulation.getId()).orElseThrow().getCashBalance()));
+
+        mockMvc.perform(post("/simulations/{id}/reset", simulation.getId()).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // Restored to month 3's snapshot (1010.00), not the post-deposit value, and not
+        // month 1's or month 2's snapshot cash (both 1000.00).
+        Simulation reloaded = simulationRepository.findById(simulation.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("1010.00").compareTo(reloaded.getCashBalance()));
+        assertEquals(0, new BigDecimal("1100.00").compareTo(reloaded.getTotalAssetValue()));
+
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        assertEquals(1, positions.size());
+        assertEquals(5, positions.get(0).getQuantity());
+        assertEquals(0, new BigDecimal("900.00").compareTo(positions.get(0).getCostBasis()));
     }
 
     // --- snapshot ---------------------------------------------------------------------------
