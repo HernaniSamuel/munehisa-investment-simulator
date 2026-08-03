@@ -26,6 +26,7 @@ public class AuthService {
     private final TokenService tokenService;
     private final EmailService emailService;
     private final AccountLockoutService accountLockoutService;
+    private final UnknownEmailThrottleService unknownEmailThrottleService;
 
     @Value("${verification.token.expiration}")
     private long verificationTokenExpirationMs;
@@ -99,7 +100,12 @@ public class AuthService {
     }
 
     public LoginResponseDTO login(LoginRequestDTO body) {
-        User user = repository.findByEmail(body.email()).orElseThrow(InvalidCredentialsException::new);
+        Optional<User> maybeUser = repository.findByEmail(body.email());
+        if (maybeUser.isEmpty()) {
+            unknownEmailThrottleService.throttle(body.email());
+            throw new InvalidCredentialsException();
+        }
+        User user = maybeUser.get();
         if (accountLockoutService.checkPassword(user, body.password())) {
             if (!user.isVerified()) {
                 throw new EmailPendingVerificationException();

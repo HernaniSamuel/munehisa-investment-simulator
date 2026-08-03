@@ -43,6 +43,8 @@ class AuthServiceTest {
     private EmailService emailService;
     @Mock
     private AccountLockoutService accountLockoutService;
+    @Mock
+    private UnknownEmailThrottleService unknownEmailThrottleService;
 
     @InjectMocks
     private AuthService authService;
@@ -140,6 +142,18 @@ class AuthServiceTest {
         when(repository.findByEmail(body.email())).thenReturn(Optional.empty());
 
         assertThrows(InvalidCredentialsException.class, () -> authService.login(body));
+        verify(unknownEmailThrottleService).throttle(body.email());
+    }
+
+    @Test
+    void login_unknownEmailThrottled_throwsAccountLockedExceptionWithoutTouchingAccountLockout() {
+        LoginRequestDTO body = new LoginRequestDTO("unknown@example.com", "any-password");
+        Instant lockedUntil = Instant.now().plusSeconds(60);
+        when(repository.findByEmail(body.email())).thenReturn(Optional.empty());
+        doThrow(new AccountLockedException(lockedUntil)).when(unknownEmailThrottleService).throttle(body.email());
+
+        assertThrows(AccountLockedException.class, () -> authService.login(body));
+        verifyNoInteractions(accountLockoutService);
     }
 
     @Test
