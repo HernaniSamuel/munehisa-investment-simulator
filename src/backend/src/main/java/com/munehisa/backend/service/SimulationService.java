@@ -8,7 +8,10 @@ import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AdvanceMonthPositionDTO;
+import com.munehisa.backend.dto.AdvanceMonthResponseDTO;
 import com.munehisa.backend.dto.AssetLookupResultDTO;
+import com.munehisa.backend.dto.AssetMonthDataDTO;
 import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
@@ -21,6 +24,7 @@ import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
+import com.munehisa.backend.exceptions.FutureSimulationCurrentMonthException;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.InsufficientCashForPurchaseException;
@@ -255,6 +259,99 @@ public class SimulationService {
         return new TradeResponseDTO(
                 simulation.getId(), TransactionType.SELL, fullSell ? null : toPositionResponse(position, asset),
                 proceeds, simulation.getCashBalance(), simulation.getTotalAssetValue(), simulation.getTotalPatrimony());
+    }
+
+    @Transactional
+    public AdvanceMonthResponseDTO advanceMonth(UUID id, User user) {
+        Simulation simulation = findOwned(id, user);
+
+        YearMonth newMonth = simulation.getCurrentMonth().plusMonths(1);
+        YearMonth realCurrentMonth = YearMonth.now(clock);
+        if (newMonth.isAfter(realCurrentMonth)) {
+            throw new FutureSimulationCurrentMonthException(newMonth, realCurrentMonth);
+        }
+        simulation.setCurrentMonth(newMonth);
+
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+        List<AssetCatalog> assets = new ArrayList<>();
+        List<BigDecimal> pricesInBase = new ArrayList<>();
+        List<Boolean> truncatedFlags = new ArrayList<>();
+        List<BigDecimal> dividendsInBase = new ArrayList<>();
+        List<BigDecimal> values = new ArrayList<>();
+        BigDecimal totalAssetValue = BigDecimal.ZERO;
+
+        for (Position position : positions) {
+            AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
+                    .orElseThrow(() -> new IllegalStateException("No asset catalog entry for asset id " + position.getAssetId()));
+
+            AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(asset.getTicker(), simulation.getCurrentMonth());
+            ExchangeRateLookupResultDTO rate = exchangeRateCacheService.getExchangeRate(
+                    asset.getBaseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+
+            // Same row backs both price and dividend - the last element of the bounded,
+            // truncation-aware series, exactly what currentClose() reads for price alone.
+            AssetMonthDataDTO currentRow = lookup.series().get(lookup.series().size() - 1);
+            BigDecimal priceInBase = currentRow.close().multiply(rate.close(), MATH_CONTEXT);
+            // dividends is nullable (the data-service reports it as null when a month has none),
+            // unlike close which is always populated - treated as zero rather than propagating a NPE.
+            BigDecimal dividendPerShare = currentRow.dividends() == null ? BigDecimal.ZERO : currentRow.dividends();
+            BigDecimal dividendInBase = dividendPerShare
+                    .multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT)
+                    .multiply(rate.close(), MATH_CONTEXT);
+
+            if (dividendInBase.signum() != 0) {
+                simulation.setCashBalance(simulation.getCashBalance().add(dividendInBase));
+                position.setTotalDividendsReceived(position.getTotalDividendsReceived().add(dividendInBase));
+
+                Transaction dividendTransaction = new Transaction();
+                dividendTransaction.setSimulationId(simulation.getId());
+                dividendTransaction.setType(TransactionType.DIVIDEND);
+                dividendTransaction.setMonth(simulation.getCurrentMonth());
+                dividendTransaction.setAmount(dividendInBase);
+                dividendTransaction.setTicker(asset.getTicker());
+                dividendTransaction.setAssetName(asset.getName());
+                transactionRepository.save(dividendTransaction);
+            }
+
+            // Value is derived from priceInBase above, not a fresh lookup - reusing
+            // recalculatePositionsAndTotalValue here would re-fetch each position's price/rate a
+            // second time, and for a position whose price is truncated or mid-refresh-retry, that
+            // second fetch is not guaranteed to resolve identically to the first (see the
+            // note on AssetCacheService.ensureFreshData), which would let the reported per-position
+            // price/wasTruncated diverge from what actually backs totalAssetValue/weight.
+            BigDecimal value = priceInBase.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
+            totalAssetValue = totalAssetValue.add(value);
+
+            assets.add(asset);
+            pricesInBase.add(priceInBase);
+            truncatedFlags.add(lookup.truncated());
+            dividendsInBase.add(dividendInBase);
+            values.add(value);
+        }
+
+        for (int i = 0; i < positions.size(); i++) {
+            BigDecimal weight = totalAssetValue.signum() == 0
+                    ? BigDecimal.ZERO
+                    : values.get(i).divide(totalAssetValue, MATH_CONTEXT);
+            positions.get(i).setWeight(weight);
+        }
+        simulation.setTotalAssetValue(totalAssetValue);
+
+        positionRepository.saveAll(positions);
+        simulationRepository.save(simulation);
+
+        List<AdvanceMonthPositionDTO> positionResults = new ArrayList<>();
+        for (int i = 0; i < positions.size(); i++) {
+            Position position = positions.get(i);
+            positionResults.add(new AdvanceMonthPositionDTO(
+                    assets.get(i).getTicker(), assets.get(i).getName(), position.getQuantity(),
+                    pricesInBase.get(i), truncatedFlags.get(i), dividendsInBase.get(i),
+                    position.getWeight(), position.getCostBasis(), position.getTotalDividendsReceived()));
+        }
+
+        return new AdvanceMonthResponseDTO(
+                simulation.getId(), simulation.getCurrentMonth(), simulation.getCashBalance(),
+                simulation.getTotalAssetValue(), simulation.getTotalPatrimony(), positionResults);
     }
 
     @Transactional

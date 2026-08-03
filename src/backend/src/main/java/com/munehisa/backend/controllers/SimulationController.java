@@ -1,6 +1,7 @@
 package com.munehisa.backend.controllers;
 
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AdvanceMonthResponseDTO;
 import com.munehisa.backend.dto.AssetSearchResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
@@ -208,6 +209,24 @@ public class SimulationController {
             @Valid @RequestBody TradeRequestDTO request
     ) {
         return ResponseEntity.ok(simulationService.sell(id, request, user));
+    }
+
+    @PostMapping("/{id}/advance")
+    @Operation(summary = "Advance a simulation's current month", description = "Moves the authenticated user's simulation's current month forward by one, repricing every held position and crediting its dividend (both converted to the simulation's base currency using that same month's close exchange rate), then recomputing every position's weight and the simulation's total asset value. Cost basis is untouched.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Month advanced"),
+            @ApiResponse(responseCode = "400", description = "Advancing would put the current month after the real current month",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<AdvanceMonthResponseDTO> advanceSimulation(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id
+    ) {
+        return ResponseEntity.ok(simulationService.advanceMonth(id, user));
     }
 
     @PostMapping("/{id}/snapshot")

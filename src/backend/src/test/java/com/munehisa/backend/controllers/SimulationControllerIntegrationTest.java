@@ -10,6 +10,7 @@ import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AdvanceMonthResponseDTO;
 import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
@@ -20,6 +21,7 @@ import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
 import com.munehisa.backend.dto.dataservice.RawExchangeMonthDataPoint;
+import com.munehisa.backend.exceptions.AssetDataServiceException;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.infra.security.TokenService;
 import com.munehisa.backend.repository.AssetCatalogRepository;
@@ -49,6 +51,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
@@ -1344,6 +1348,240 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         mockMvc.perform(post("/simulations/{id}/sell", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- advance --------------------------------------------------------------------------
+
+    @Test
+    void advance_ownSimulation_returns200RepricesPositionCreditsDividendAndRecalculatesTotals() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        // seedAssetCatalog only caches January 2024; advancing to February forces a refresh,
+        // which this stubs with a new close price and a per-share dividend.
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+
+        MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positions[0].ticker").value("AAPL"))
+                .andExpect(jsonPath("$.positions[0].wasTruncated").value(false))
+                .andReturn();
+
+        AdvanceMonthResponseDTO response = objectMapper.readValue(readBody(result), AdvanceMonthResponseDTO.class);
+        assertEquals(YearMonth.of(2024, 2), response.currentMonth());
+        // price = 200.00 (same currency, no conversion); totalAssetValue = 200.00 * 5 = 1000.00.
+        assertEquals(0, new BigDecimal("200.00").compareTo(response.positions().get(0).price()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.totalAssetValue()));
+        // dividend = 2.00/share * 5 shares = 10.00, credited to cash on top of the 1000.00 seeded.
+        assertEquals(0, new BigDecimal("10.00").compareTo(response.positions().get(0).dividendReceived()));
+        assertEquals(0, new BigDecimal("1010.00").compareTo(response.cashBalance()));
+        assertEquals(0, new BigDecimal("900.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, BigDecimal.ONE.compareTo(response.positions().get(0).weight()));
+
+        Simulation reloaded = simulationRepository.findById(simulation.getId()).orElseThrow();
+        assertEquals(YearMonth.of(2024, 2), reloaded.getCurrentMonth());
+        assertEquals(0, new BigDecimal("1010.00").compareTo(reloaded.getCashBalance()));
+
+        Position reloadedPosition = positionRepository.findBySimulationId(simulation.getId()).get(0);
+        assertEquals(0, new BigDecimal("900.00").compareTo(reloadedPosition.getCostBasis()));
+        assertEquals(0, new BigDecimal("10.00").compareTo(reloadedPosition.getTotalDividendsReceived()));
+
+        List<Transaction> dividendTransactions = transactionRepository.findBySimulationId(simulation.getId()).stream()
+                .filter(t -> t.getType() == TransactionType.DIVIDEND).toList();
+        assertEquals(1, dividendTransactions.size());
+        assertEquals(0, new BigDecimal("10.00").compareTo(dividendTransactions.get(0).getAmount()));
+        assertEquals("AAPL", dividendTransactions.get(0).getTicker());
+        assertEquals(YearMonth.of(2024, 2), dividendTransactions.get(0).getMonth());
+        assertNull(dividendTransactions.get(0).getQuantity());
+    }
+
+    @Test
+    void advance_crossCurrency_convertsPriceAndDividendUsingTheSameRate() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "BRL", BigDecimal.ZERO);
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("2.00"), new BigDecimal("2.00"),
+                        new BigDecimal("2.00"), new BigDecimal("2.00"), 1_000_000L, new BigDecimal("0.10"), null))));
+        when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(
+                List.of(new RawExchangeMonthDataPoint(simulation.getCurrentMonth(),
+                        new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"))));
+
+        MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // Stored canonical rate is BRL/USD 0.20; USD->BRL is its inverse, 5.00 - the one rate
+        // applied to both this position's price and its dividend.
+        AdvanceMonthResponseDTO response = objectMapper.readValue(readBody(result), AdvanceMonthResponseDTO.class);
+        assertEquals(0, new BigDecimal("10.00").compareTo(response.positions().get(0).price())); // 2.00 * 5.00
+        assertEquals(0, new BigDecimal("2.50").compareTo(response.positions().get(0).dividendReceived())); // 0.10 * 5 * 5.00
+        assertEquals(0, new BigDecimal("50.00").compareTo(response.totalAssetValue())); // 10.00 * 5 shares
+        assertEquals(0, new BigDecimal("2.50").compareTo(response.cashBalance()));
+    }
+
+    @Test
+    void advance_wouldExceedRealCurrentMonth_returns400AndDoesNotChangeMonth() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        simulation.setCurrentMonth(YearMonth.now());
+        simulation = simulationRepository.save(simulation);
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(YearMonth.now(), simulationRepository.findById(simulation.getId()).orElseThrow().getCurrentMonth());
+    }
+
+    @Test
+    void advance_someTruncatedSomeNot_flagsPerPositionIndependently() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        AssetCatalog msft = seedAssetCatalog("MSFT", "Microsoft Corp.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        seedPosition(simulation.getId(), msft.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        // AAPL's refresh reaches February; MSFT's refresh runs but the upstream feed still only
+        // has January (a ticker whose new month genuinely isn't out yet) - truncated stays true
+        // for MSFT alone, independent of AAPL's own flag.
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null))));
+        when(dataServiceAssetClient.fetchSeries("MSFT")).thenReturn(new RawAssetSeries(
+                "MSFT", "Microsoft Corp.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 1), new BigDecimal("180.00"), new BigDecimal("180.00"),
+                        new BigDecimal("180.00"), new BigDecimal("180.00"), 1_000_000L, null, null))));
+
+        MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        AdvanceMonthResponseDTO response = objectMapper.readValue(readBody(result), AdvanceMonthResponseDTO.class);
+        var aaplResult = response.positions().stream().filter(p -> p.ticker().equals("AAPL")).findFirst().orElseThrow();
+        var msftResult = response.positions().stream().filter(p -> p.ticker().equals("MSFT")).findFirst().orElseThrow();
+        assertFalse(aaplResult.wasTruncated());
+        assertTrue(msftResult.wasTruncated());
+    }
+
+    @Test
+    void advance_upstreamRefreshFailureForAlreadyHeldTicker_returns200UsingStaleCachedData() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        // Simulates a network/upstream failure on refresh; AssetCacheService already catches
+        // this for a ticker with existing cached data and falls back to serving it stale
+        // (January's row, seeded by seedAssetCatalog) instead of failing the whole operation.
+        when(dataServiceAssetClient.fetchSeries("AAPL"))
+                .thenThrow(new AssetDataServiceException("AAPL", new RuntimeException("upstream unreachable")));
+
+        MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        AdvanceMonthResponseDTO response = objectMapper.readValue(readBody(result), AdvanceMonthResponseDTO.class);
+        assertTrue(response.positions().get(0).wasTruncated());
+        assertEquals(0, new BigDecimal("180.00").compareTo(response.positions().get(0).price()));
+        assertEquals(0, new BigDecimal("900.00").compareTo(response.totalAssetValue()));
+        assertEquals(YearMonth.of(2024, 2), response.currentMonth());
+    }
+
+    @Test
+    void advance_midLoopFailure_rollsBackEntireAdvance() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.");
+        AssetCatalog msft = seedAssetCatalog("MSFT", "Microsoft Corp.");
+        seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        seedPosition(simulation.getId(), msft.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null))));
+        // An unexpected failure type (not one AssetCacheService's refresh catch clause handles)
+        // simulates an unrecoverable mid-loop error on the second position, to prove the whole
+        // advance - including AAPL's already-processed reprice above - is rolled back, not
+        // partially applied.
+        when(dataServiceAssetClient.fetchSeries("MSFT")).thenThrow(new RuntimeException("simulated corruption"));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isInternalServerError());
+
+        Simulation reloaded = simulationRepository.findById(simulation.getId()).orElseThrow();
+        assertEquals(YearMonth.of(2024, 1), reloaded.getCurrentMonth());
+        assertEquals(0, new BigDecimal("1000.00").compareTo(reloaded.getCashBalance()));
+        assertTrue(transactionRepository.findBySimulationId(simulation.getId()).isEmpty());
+    }
+
+    @Test
+    void advance_noPositions_returns200WithZeroTotalAssetValue() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAssetValue").value(0))
+                .andExpect(jsonPath("$.positions.length()").value(0));
+    }
+
+    @Test
+    void advance_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+
+        mockMvc.perform(post("/simulations/{id}/advance", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void advance_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD", new BigDecimal("1000.00"));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+
+        assertEquals(YearMonth.of(2024, 1), simulationRepository.findById(simulation.getId()).orElseThrow().getCurrentMonth());
+    }
+
+    @Test
+    void advance_withoutToken_returns401() throws Exception {
+        mockMvc.perform(post("/simulations/{id}/advance", UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
     }
 
