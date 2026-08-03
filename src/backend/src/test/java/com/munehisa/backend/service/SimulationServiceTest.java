@@ -9,6 +9,7 @@ import com.munehisa.backend.domain.simulation.SnapshotPosition;
 import com.munehisa.backend.domain.simulation.Transaction;
 import com.munehisa.backend.domain.simulation.TransactionType;
 import com.munehisa.backend.domain.user.User;
+import com.munehisa.backend.dto.AdvanceMonthResponseDTO;
 import com.munehisa.backend.dto.AssetLookupResultDTO;
 import com.munehisa.backend.dto.AssetMonthDataDTO;
 import com.munehisa.backend.dto.AssetSearchResponseDTO;
@@ -24,6 +25,7 @@ import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
+import com.munehisa.backend.exceptions.FutureSimulationCurrentMonthException;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
 import com.munehisa.backend.exceptions.InsufficientCashForPurchaseException;
@@ -828,6 +830,312 @@ class SimulationServiceTest {
         verify(transactionRepository, never()).save(any());
     }
 
+    // --- advanceMonth ---------------------------------------------------------------------------
+
+    @Test
+    void advanceMonth_notOwnedOrMissingSimulation_throwsSimulationNotFoundExceptionAndDoesNotSave() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).advanceMonth(id, user));
+
+        verifyNoInteractions(positionRepository, assetCacheService, exchangeRateCacheService, transactionRepository);
+    }
+
+    @Test
+    void advanceMonth_newMonthEqualsRealCurrentMonth_succeeds() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        // simulation.currentMonth is 2024-06 (see the simulation() fixture); the fixed clock's
+        // month is exactly one month later, so newMonth == realCurrentMonth - the boundary that
+        // must still be accepted (mirrors create()'s startMonth == currentMonth boundary test).
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(YearMonth.of(2024, 7), response.currentMonth());
+        verify(simulationRepository).save(simulation);
+    }
+
+    @Test
+    void advanceMonth_wouldExceedRealCurrentMonth_throwsFutureSimulationCurrentMonthExceptionAndDoesNotSave() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+
+        // simulation.currentMonth is 2024-06, so newMonth would be 2024-07 - after the fixed
+        // clock's real current month of 2024-06.
+        assertThrows(FutureSimulationCurrentMonthException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 6, 20))).advanceMonth(simulation.getId(), user));
+
+        verifyNoInteractions(positionRepository, assetCacheService, exchangeRateCacheService, transactionRepository);
+        verify(simulationRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_sameCurrency_repricesPositionAndRecalculatesTotalValueLeavingCostBasisUntouched() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(0, new BigDecimal("550.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        assertEquals(1, response.positions().size());
+        assertEquals("AAPL", response.positions().get(0).ticker());
+        assertEquals(0, new BigDecimal("55.00").compareTo(response.positions().get(0).price()));
+        assertFalse(response.positions().get(0).wasTruncated());
+        assertEquals(0, BigDecimal.ONE.compareTo(response.positions().get(0).weight()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
+
+        verify(positionRepository).saveAll(List.of(position));
+        assertEquals(0, new BigDecimal("500.00").compareTo(position.getCostBasis()));
+    }
+
+    @Test
+    void advanceMonth_crossCurrency_convertsPriceToSimulationBaseCurrency() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "2.00"))));
+        when(exchangeRateCacheService.getExchangeRate("USD", "BRL", newMonth))
+                .thenReturn(exchangeRate("USD", "BRL", newMonth, new BigDecimal("5.00")));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        // priceInBase = 2.00 USD * 5.00 = 10.00 BRL; totalAssetValue = 10.00 * 10 = 100.00 BRL.
+        assertEquals(0, new BigDecimal("10.00").compareTo(response.positions().get(0).price()));
+        assertEquals(0, new BigDecimal("100.00").compareTo(response.totalAssetValue()));
+    }
+
+    @Test
+    void advanceMonth_dividendCredited_addsToCashAndPositionTotalUsingSamePriceRate() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "USD", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "2.00", "0.10"))));
+        when(exchangeRateCacheService.getExchangeRate("USD", "BRL", newMonth))
+                .thenReturn(exchangeRate("USD", "BRL", newMonth, new BigDecimal("5.00")));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        // dividendInBase = 0.10 USD/share * 10 shares * 5.00 (the same rate used for price) = 5.00 BRL.
+        assertEquals(0, new BigDecimal("5.00").compareTo(response.positions().get(0).dividendReceived()));
+        assertEquals(0, new BigDecimal("1005.00").compareTo(response.cashBalance()));
+        assertEquals(0, new BigDecimal("5.00").compareTo(response.positions().get(0).totalDividendsReceived()));
+
+        ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        assertEquals(TransactionType.DIVIDEND, transactionCaptor.getValue().getType());
+        assertEquals(0, new BigDecimal("5.00").compareTo(transactionCaptor.getValue().getAmount()));
+        assertEquals("AAPL", transactionCaptor.getValue().getTicker());
+        assertEquals(newMonth, transactionCaptor.getValue().getMonth());
+        assertNull(transactionCaptor.getValue().getQuantity());
+    }
+
+    @Test
+    void advanceMonth_zeroDividend_doesNotCreateDividendTransaction() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00", "0.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.positions().get(0).dividendReceived()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_nullDividendFromDataService_treatedAsZeroNotNullPointerException() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // The data-service reports a null (not zero) dividend for months with none - the same
+        // shape SimulationControllerIntegrationTest's rawAssetSeries fixture already uses.
+        BigDecimal close = new BigDecimal("55.00");
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.positions().get(0).dividendReceived()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_someTruncatedSomeNot_flagsEachPositionIndependently() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID aaplAssetId = UUID.randomUUID();
+        UUID msftAssetId = UUID.randomUUID();
+        Position aaplPosition = position(simulation.getId(), aaplAssetId, 10, "0.5", "500.00", "0.00");
+        Position msftPosition = position(simulation.getId(), msftAssetId, 5, "0.5", "999.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(aaplPosition, msftPosition));
+        when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
+        // AAPL's cache is fresh through the new month; MSFT's cache had to truncate (fell back
+        // to the latest cached month, 2024-06) - independently flagged per position.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00"))));
+        when(assetCacheService.getAssetSeries("MSFT", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "MSFT", "Microsoft Corp.", "BRL", newMonth, YearMonth.of(2024, 6), true,
+                List.of(assetMonthData(YearMonth.of(2024, 6), "20.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        var aaplResult = response.positions().stream().filter(p -> p.ticker().equals("AAPL")).findFirst().orElseThrow();
+        var msftResult = response.positions().stream().filter(p -> p.ticker().equals("MSFT")).findFirst().orElseThrow();
+        assertFalse(aaplResult.wasTruncated());
+        assertTrue(msftResult.wasTruncated());
+    }
+
+    @Test
+    void advanceMonth_multiplePositions_recalculatesWeightsAndTotalAssetValue() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID aaplAssetId = UUID.randomUUID();
+        UUID msftAssetId = UUID.randomUUID();
+        Position aaplPosition = position(simulation.getId(), aaplAssetId, 10, "0.5", "500.00", "0.00");
+        Position msftPosition = position(simulation.getId(), msftAssetId, 5, "0.5", "999.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(aaplPosition, msftPosition));
+        when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00"))));
+        when(assetCacheService.getAssetSeries("MSFT", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "MSFT", "Microsoft Corp.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "20.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        // AAPL value = 30.00 * 10 = 300.00; MSFT value = 20.00 * 5 = 100.00; total = 400.00.
+        assertEquals(0, new BigDecimal("400.00").compareTo(response.totalAssetValue()));
+        var aaplResult = response.positions().stream().filter(p -> p.ticker().equals("AAPL")).findFirst().orElseThrow();
+        var msftResult = response.positions().stream().filter(p -> p.ticker().equals("MSFT")).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("0.75").compareTo(aaplResult.weight()));
+        assertEquals(0, new BigDecimal("0.25").compareTo(msftResult.weight()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(aaplResult.costBasis()));
+        assertEquals(0, new BigDecimal("999.00").compareTo(msftResult.costBasis()));
+    }
+
+    @Test
+    void advanceMonth_upstreamRefreshFailureForAlreadyHeldTicker_resolvesGracefullyViaStaleCachedData() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        // AssetCacheService itself already swallows a refresh failure for a ticker with existing
+        // cached data and serves the latest cached (truncated) month instead - simulated here by
+        // stubbing exactly the truncated result it would return in that case, since the refresh
+        // failure/catch is internal to AssetCacheService and out of SimulationService's reach.
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, YearMonth.of(2024, 6), true,
+                List.of(assetMonthData(YearMonth.of(2024, 6), "40.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertTrue(response.positions().get(0).wasTruncated());
+        assertEquals(0, new BigDecimal("40.00").compareTo(response.positions().get(0).price()));
+        assertEquals(0, new BigDecimal("400.00").compareTo(response.totalAssetValue()));
+    }
+
+    @Test
+    void advanceMonth_midLoopFailure_doesNotPersistAnything() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID aaplAssetId = UUID.randomUUID();
+        UUID msftAssetId = UUID.randomUUID();
+        Position aaplPosition = position(simulation.getId(), aaplAssetId, 10, "0.5", "500.00", "0.00");
+        Position msftPosition = position(simulation.getId(), msftAssetId, 5, "0.5", "999.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(aaplPosition, msftPosition));
+        when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00", "0.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+        // Simulates an unrecoverable failure partway through the position loop (the second
+        // position, MSFT) - the earlier AAPL work must not leave any trace once this propagates.
+        when(assetCacheService.getAssetSeries("MSFT", newMonth)).thenThrow(new RuntimeException("boom"));
+
+        assertThrows(RuntimeException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).advanceMonth(simulation.getId(), user));
+
+        verify(positionRepository, never()).saveAll(any());
+        verify(simulationRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
     // --- createSnapshot ---------------------------------------------------------------------
 
     @Test
@@ -1063,8 +1371,12 @@ class SimulationServiceTest {
     }
 
     private AssetMonthDataDTO assetMonthData(YearMonth month, String close) {
+        return assetMonthData(month, close, "0.00");
+    }
+
+    private AssetMonthDataDTO assetMonthData(YearMonth month, String close, String dividend) {
         BigDecimal closeValue = new BigDecimal(close);
-        return new AssetMonthDataDTO(month, closeValue, closeValue, closeValue, closeValue, 0, BigDecimal.ZERO, BigDecimal.ZERO);
+        return new AssetMonthDataDTO(month, closeValue, closeValue, closeValue, closeValue, 0, new BigDecimal(dividend), BigDecimal.ZERO);
     }
 
     private Transaction transaction(UUID simulationId, TransactionType type, YearMonth month) {
