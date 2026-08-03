@@ -298,4 +298,46 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
                         .content(objectMapper.writeValueAsString(correctBody)))
                 .andExpect(status().isTooManyRequests());
     }
+
+    @Test
+    void login_fiveWrongPasswordsUnknownEmail_returns429WithLockedUntil() throws Exception {
+        // matches login.unknown-email-throttle.max-attempts=5 in application-test.properties;
+        // deliberately no createUser() call - this email has no matching account at all
+        LoginRequestDTO body = new LoginRequestDTO("no-account-429@example.com", "wrong-password");
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(post("/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(body)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 5th attempt crosses the threshold and should trigger the same 429 an
+        // eventually-locked real account would get
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.lockedUntil").isNotEmpty());
+    }
+
+    @Test
+    void login_unknownEmailThrottled_responseShapeMatchesAccountLockedResponse() throws Exception {
+        LoginRequestDTO body = new LoginRequestDTO("no-account-shape@example.com", "wrong-password");
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(post("/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(body)));
+        }
+
+        // same two fields as AccountLockedResponseDTO, nothing more - the two
+        // 429 cases must be indistinguishable to the caller
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.lockedUntil").isNotEmpty())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
 }
