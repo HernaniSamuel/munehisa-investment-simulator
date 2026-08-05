@@ -20,9 +20,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -123,20 +121,10 @@ public class InflationCacheService {
     }
 
     private void upsert(InflationCurrency currency, List<NormalizedMonth> normalized) {
-        Map<YearMonth, InflationIndex> existing = inflationIndexRepository.findByCurrency(currency).stream()
-                .collect(Collectors.toMap(InflationIndex::getReferenceMonth, Function.identity()));
-
-        List<InflationIndex> toSave = normalized.stream()
-                .map(month -> {
-                    InflationIndex row = existing.getOrDefault(month.month(), new InflationIndex());
-                    row.setCurrency(currency);
-                    row.setReferenceMonth(month.month());
-                    row.setAccumulatedIndex(month.accumulatedIndex());
-                    return row;
-                })
-                .toList();
-
-        inflationIndexRepository.saveAll(toSave);
+        for (NormalizedMonth month : normalized) {
+            inflationIndexRepository.upsert(
+                    UUID.randomUUID(), currency.name(), month.month().atDay(1), month.accumulatedIndex());
+        }
     }
 
     private record NormalizedMonth(YearMonth month, BigDecimal accumulatedIndex) {}

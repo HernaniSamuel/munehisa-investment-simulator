@@ -14,9 +14,7 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.time.YearMonth;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -126,23 +124,10 @@ public class ExchangeRateCacheService {
     }
 
     private void upsert(String base, String quote, List<RawExchangeMonthDataPoint> raw) {
-        Map<YearMonth, ExchangeRate> existing = exchangeRateRepository.findByBaseCurrencyAndQuoteCurrency(base, quote).stream()
-                .collect(Collectors.toMap(ExchangeRate::getReferenceMonth, Function.identity()));
-
-        List<ExchangeRate> toSave = raw.stream()
-                .map(point -> {
-                    ExchangeRate row = existing.getOrDefault(point.month(), new ExchangeRate());
-                    row.setBaseCurrency(base);
-                    row.setQuoteCurrency(quote);
-                    row.setReferenceMonth(point.month());
-                    row.setOpen(point.open());
-                    row.setHigh(point.high());
-                    row.setLow(point.low());
-                    row.setClose(point.close());
-                    return row;
-                })
-                .toList();
-
-        exchangeRateRepository.saveAll(toSave);
+        for (RawExchangeMonthDataPoint point : raw) {
+            exchangeRateRepository.upsert(
+                    UUID.randomUUID(), base, quote, point.month().atDay(1),
+                    point.open(), point.high(), point.low(), point.close());
+        }
     }
 }

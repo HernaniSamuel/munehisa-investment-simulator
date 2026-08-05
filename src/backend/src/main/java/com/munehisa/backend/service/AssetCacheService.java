@@ -19,10 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.YearMonth;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -114,34 +111,15 @@ public class AssetCacheService {
     }
 
     private void upsertCatalog(String ticker, RawAssetSeries raw) {
-        AssetCatalog catalog = assetCatalogRepository.findByTicker(ticker).orElseGet(AssetCatalog::new);
-        catalog.setTicker(ticker);
-        catalog.setName(raw.name());
-        catalog.setBaseCurrency(raw.baseCurrency());
-        catalog.setStartDate(raw.startDate());
-        assetCatalogRepository.save(catalog);
+        assetCatalogRepository.upsert(UUID.randomUUID(), ticker, raw.name(), raw.baseCurrency(), raw.startDate());
     }
 
     private void upsertMonthlySeries(String ticker, List<RawAssetMonthDataPoint> raw) {
-        Map<YearMonth, AssetMonthlyPrice> existing = assetMonthlyPriceRepository.findByTicker(ticker).stream()
-                .collect(Collectors.toMap(AssetMonthlyPrice::getReferenceMonth, Function.identity()));
-
-        List<AssetMonthlyPrice> toSave = raw.stream()
-                .map(point -> {
-                    AssetMonthlyPrice row = existing.getOrDefault(point.month(), new AssetMonthlyPrice());
-                    row.setTicker(ticker);
-                    row.setReferenceMonth(point.month());
-                    row.setOpen(point.open());
-                    row.setHigh(point.high());
-                    row.setLow(point.low());
-                    row.setClose(point.close());
-                    row.setVolume(point.volume());
-                    row.setDividends(point.dividends());
-                    row.setSplits(point.splits());
-                    return row;
-                })
-                .toList();
-
-        assetMonthlyPriceRepository.saveAll(toSave);
+        for (RawAssetMonthDataPoint point : raw) {
+            assetMonthlyPriceRepository.upsert(
+                    UUID.randomUUID(), ticker, point.month().atDay(1),
+                    point.open(), point.high(), point.low(), point.close(),
+                    point.volume(), point.dividends(), point.splits());
+        }
     }
 }
