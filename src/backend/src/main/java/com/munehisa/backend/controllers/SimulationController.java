@@ -11,6 +11,7 @@ import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
+import com.munehisa.backend.dto.TransactionResponseDTO;
 import com.munehisa.backend.infra.RestErrorMessage;
 import com.munehisa.backend.service.SimulationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -150,6 +151,22 @@ public class SimulationController {
             @PathVariable UUID id
     ) {
         return ResponseEntity.ok(simulationService.listPositions(id, user));
+    }
+
+    @GetMapping("/{id}/transactions")
+    @Operation(summary = "List a simulation's transaction history", description = "Returns every transaction belonging to the authenticated user's simulation - buys, sells, deposits, withdrawals, and dividends - ordered by month descending, then by creation time ascending within the same month. No pagination.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Transactions returned"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<List<TransactionResponseDTO>> listTransactions(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id
+    ) {
+        return ResponseEntity.ok(simulationService.listTransactions(id, user));
     }
 
     @PostMapping("/{id}/deposits")

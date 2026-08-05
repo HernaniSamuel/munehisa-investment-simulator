@@ -25,6 +25,7 @@ import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
+import com.munehisa.backend.dto.TransactionResponseDTO;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.FutureSimulationCurrentMonthException;
@@ -452,6 +453,67 @@ class SimulationServiceTest {
         PositionWithValuationDTO positionDto = response.positions().get(0);
         assertEquals(0, new BigDecimal("100.00").compareTo(positionDto.gainAmount()));
         assertEquals(0, new BigDecimal("0.2").compareTo(positionDto.gainPercent()));
+    }
+
+    // --- listTransactions -------------------------------------------------------------------
+
+    @Test
+    void listTransactions_notOwnedOrMissingSimulation_throwsSimulationNotFoundException() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).listTransactions(id, user));
+
+        verifyNoInteractions(transactionRepository);
+    }
+
+    @Test
+    void listTransactions_noTransactions_returnsEmptyList() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(transactionRepository.findBySimulationIdOrderByMonthDescCreatedAtAsc(simulation.getId())).thenReturn(List.of());
+
+        List<TransactionResponseDTO> response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listTransactions(simulation.getId(), user);
+
+        assertTrue(response.isEmpty());
+    }
+
+    @Test
+    void listTransactions_mapsAllFieldsInRepositoryOrder() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        Transaction buy = transaction(simulation.getId(), TransactionType.BUY, YearMonth.of(2024, 6), "1800.00", "AAPL", "Apple Inc.", "10");
+        Transaction sell = transaction(simulation.getId(), TransactionType.SELL, YearMonth.of(2024, 5), "900.00", "AAPL", "Apple Inc.", "5");
+        Transaction deposit = transaction(simulation.getId(), TransactionType.DEPOSIT, YearMonth.of(2024, 4), "250.00", null, null, null);
+        Transaction withdrawal = transaction(simulation.getId(), TransactionType.WITHDRAWAL, YearMonth.of(2024, 3), "100.00", null, null, null);
+        Transaction dividend = transaction(simulation.getId(), TransactionType.DIVIDEND, YearMonth.of(2024, 2), "12.50", "AAPL", "Apple Inc.", null);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        // Deliberately not sorted here - the service must preserve exactly what the repository
+        // returns rather than re-sorting, since sorting is the repository query's job.
+        when(transactionRepository.findBySimulationIdOrderByMonthDescCreatedAtAsc(simulation.getId()))
+                .thenReturn(List.of(sell, buy, dividend, withdrawal, deposit));
+
+        List<TransactionResponseDTO> response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listTransactions(simulation.getId(), user);
+
+        assertEquals(5, response.size());
+        assertEquals(new TransactionResponseDTO(TransactionType.SELL, YearMonth.of(2024, 5), new BigDecimal("900.00"), "AAPL", "Apple Inc.", new BigDecimal("5")), response.get(0));
+        assertEquals(new TransactionResponseDTO(TransactionType.BUY, YearMonth.of(2024, 6), new BigDecimal("1800.00"), "AAPL", "Apple Inc.", new BigDecimal("10")), response.get(1));
+        assertEquals(new TransactionResponseDTO(TransactionType.DIVIDEND, YearMonth.of(2024, 2), new BigDecimal("12.50"), "AAPL", "Apple Inc.", null), response.get(2));
+        TransactionResponseDTO withdrawalDto = response.get(3);
+        assertEquals(TransactionType.WITHDRAWAL, withdrawalDto.type());
+        assertNull(withdrawalDto.ticker());
+        assertNull(withdrawalDto.assetName());
+        assertNull(withdrawalDto.quantity());
+        TransactionResponseDTO depositDto = response.get(4);
+        assertEquals(TransactionType.DEPOSIT, depositDto.type());
+        assertNull(depositDto.ticker());
+        assertNull(depositDto.assetName());
+        assertNull(depositDto.quantity());
     }
 
     // --- deposit --------------------------------------------------------------------------
@@ -1860,5 +1922,18 @@ class SimulationServiceTest {
         simulation.setCashBalance(new BigDecimal("1000.00"));
         simulation.setTotalAssetValue(new BigDecimal("500.00"));
         return simulation;
+    }
+
+    private Transaction transaction(UUID simulationId, TransactionType type, YearMonth month, String amount, String ticker, String assetName, String quantity) {
+        Transaction transaction = new Transaction();
+        transaction.setId(UUID.randomUUID());
+        transaction.setSimulationId(simulationId);
+        transaction.setType(type);
+        transaction.setMonth(month);
+        transaction.setAmount(new BigDecimal(amount));
+        transaction.setTicker(ticker);
+        transaction.setAssetName(assetName);
+        transaction.setQuantity(quantity == null ? null : new BigDecimal(quantity));
+        return transaction;
     }
 }
