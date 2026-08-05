@@ -26,6 +26,7 @@ import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
+import com.munehisa.backend.dto.TransactionResponseDTO;
 import com.munehisa.backend.exceptions.FutureSimulationCurrentMonthException;
 import com.munehisa.backend.exceptions.FutureSimulationStartMonthException;
 import com.munehisa.backend.exceptions.InsufficientCashBalanceException;
@@ -201,6 +202,16 @@ public class SimulationService {
                 : totalGainAmount.divide(totalBaselineCostBasis, MATH_CONTEXT);
 
         return new SimulationPositionsResponseDTO(results, totalAssetValue, totalGainAmount, totalGainPercent);
+    }
+
+    // Read-only, same reasoning as get()/listPositions(): performs no writes of its own, so
+    // there is nothing here that needs atomicity.
+    public List<TransactionResponseDTO> listTransactions(UUID id, User user) {
+        Simulation simulation = findOwned(id, user);
+        return transactionRepository.findBySimulationIdOrderByMonthDescCreatedAtAsc(simulation.getId()).stream()
+                .map(t -> new TransactionResponseDTO(
+                        t.getType(), t.getMonth(), t.getAmount(), t.getTicker(), t.getAssetName(), t.getQuantity()))
+                .toList();
     }
 
     public SimulationResponseDTO rename(UUID id, RenameSimulationRequestDTO request, User user) {

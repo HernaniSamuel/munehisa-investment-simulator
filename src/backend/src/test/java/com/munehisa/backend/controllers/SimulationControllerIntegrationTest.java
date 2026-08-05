@@ -18,6 +18,7 @@ import com.munehisa.backend.dto.InflationLookupResultDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
+import com.munehisa.backend.dto.TransactionResponseDTO;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
 import com.munehisa.backend.dto.dataservice.RawExchangeMonthDataPoint;
@@ -631,6 +632,133 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
 
         Position reloadedPosition = positionRepository.findById(position.getId()).orElseThrow();
         assertEquals(0, new BigDecimal("0.42").compareTo(reloadedPosition.getWeight()));
+    }
+
+    // --- listTransactions --------------------------------------------------------------------
+
+    @Test
+    void listTransactions_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+
+        mockMvc.perform(get("/simulations/{id}/transactions", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listTransactions_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD");
+
+        mockMvc.perform(get("/simulations/{id}/transactions", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listTransactions_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/simulations/{id}/transactions", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listTransactions_noTransactions_returnsEmptyList() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+
+        mockMvc.perform(get("/simulations/{id}/transactions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void listTransactions_returnsExactFieldsForEachTransactionType() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        YearMonth month = simulation.getCurrentMonth();
+        // All seeded in the same month, so response order (created_at ascending) matches this
+        // seed order - letting each row be asserted by index below.
+        seedTransaction(simulation.getId(), TransactionType.BUY, month, "AAPL", "Apple Inc.", BigDecimal.valueOf(10));
+        seedTransaction(simulation.getId(), TransactionType.SELL, month, "AAPL", "Apple Inc.", BigDecimal.valueOf(4));
+        seedTransaction(simulation.getId(), TransactionType.DEPOSIT, month, null, null, null);
+        seedTransaction(simulation.getId(), TransactionType.WITHDRAWAL, month, null, null, null);
+        seedTransaction(simulation.getId(), TransactionType.DIVIDEND, month, "AAPL", "Apple Inc.", null);
+
+        mockMvc.perform(get("/simulations/{id}/transactions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$[0].type").value("BUY"))
+                .andExpect(jsonPath("$[0].month").value(month.toString()))
+                .andExpect(jsonPath("$[0].amount").value(100.00))
+                .andExpect(jsonPath("$[0].ticker").value("AAPL"))
+                .andExpect(jsonPath("$[0].assetName").value("Apple Inc."))
+                .andExpect(jsonPath("$[0].quantity").value(10))
+                .andExpect(jsonPath("$[1].type").value("SELL"))
+                .andExpect(jsonPath("$[1].ticker").value("AAPL"))
+                .andExpect(jsonPath("$[1].assetName").value("Apple Inc."))
+                .andExpect(jsonPath("$[1].quantity").value(4))
+                .andExpect(jsonPath("$[2].type").value("DEPOSIT"))
+                .andExpect(jsonPath("$[2].amount").value(100.00))
+                .andExpect(jsonPath("$[2].ticker").doesNotExist())
+                .andExpect(jsonPath("$[2].assetName").doesNotExist())
+                .andExpect(jsonPath("$[2].quantity").doesNotExist())
+                .andExpect(jsonPath("$[3].type").value("WITHDRAWAL"))
+                .andExpect(jsonPath("$[3].ticker").doesNotExist())
+                .andExpect(jsonPath("$[3].assetName").doesNotExist())
+                .andExpect(jsonPath("$[3].quantity").doesNotExist())
+                .andExpect(jsonPath("$[4].type").value("DIVIDEND"))
+                .andExpect(jsonPath("$[4].ticker").value("AAPL"))
+                .andExpect(jsonPath("$[4].assetName").value("Apple Inc."))
+                .andExpect(jsonPath("$[4].quantity").doesNotExist());
+    }
+
+    @Test
+    void listTransactions_orderedByMonthDescending() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        // Seeded out of order on purpose - the response order must come from the query, not insertion order.
+        seedTransaction(simulation.getId(), TransactionType.DEPOSIT, YearMonth.of(2024, 3), null, null, null);
+        seedTransaction(simulation.getId(), TransactionType.DEPOSIT, YearMonth.of(2024, 6), null, null, null);
+        seedTransaction(simulation.getId(), TransactionType.DEPOSIT, YearMonth.of(2024, 1), null, null, null);
+
+        mockMvc.perform(get("/simulations/{id}/transactions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].month").value("2024-06"))
+                .andExpect(jsonPath("$[1].month").value("2024-03"))
+                .andExpect(jsonPath("$[2].month").value("2024-01"));
+    }
+
+    @Test
+    void listTransactions_sameMonth_orderedByCreatedAtAscending() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        YearMonth month = simulation.getCurrentMonth();
+        Transaction first = seedTransaction(simulation.getId(), TransactionType.DEPOSIT, month, null, null, null);
+        Transaction second = seedTransaction(simulation.getId(), TransactionType.WITHDRAWAL, month, null, null, null);
+
+        mockMvc.perform(get("/simulations/{id}/transactions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].type").value(first.getType().name()))
+                .andExpect(jsonPath("$[1].type").value(second.getType().name()));
     }
 
     // --- rename ---------------------------------------------------------------------------

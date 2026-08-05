@@ -14,6 +14,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.time.YearMonth;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -221,5 +222,55 @@ class TransactionRepositoryTest extends SharedPostgresContainer {
 
         assertThrows(DataIntegrityViolationException.class, () ->
                 transactionRepository.saveAndFlush(transaction));
+    }
+
+    @Test
+    void save_populatesCreatedAtAutomatically() {
+        Simulation simulation = persistSimulation();
+
+        Transaction saved = persistTrade(simulation.getId(), TransactionType.BUY);
+
+        Transaction loaded = transactionRepository.findById(saved.getId()).orElseThrow();
+        assertNotNull(loaded.getCreatedAt());
+    }
+
+    // --- findBySimulationIdOrderByMonthDescCreatedAtAsc ------------------------------------
+
+    @Test
+    void findOrdered_multipleMonths_sortedByMonthDescending() {
+        Simulation simulation = persistSimulation();
+        persistCashMovementInMonth(simulation.getId(), YearMonth.of(2024, 3));
+        persistCashMovementInMonth(simulation.getId(), YearMonth.of(2024, 6));
+        persistCashMovementInMonth(simulation.getId(), YearMonth.of(2024, 1));
+
+        List<Transaction> results = transactionRepository.findBySimulationIdOrderByMonthDescCreatedAtAsc(simulation.getId());
+
+        assertEquals(3, results.size());
+        assertEquals(YearMonth.of(2024, 6), results.get(0).getMonth());
+        assertEquals(YearMonth.of(2024, 3), results.get(1).getMonth());
+        assertEquals(YearMonth.of(2024, 1), results.get(2).getMonth());
+    }
+
+    @Test
+    void findOrdered_sameMonth_sortedByCreatedAtAscending() {
+        Simulation simulation = persistSimulation();
+        Transaction first = persistCashMovementInMonth(simulation.getId(), YearMonth.of(2024, 6));
+        Transaction second = persistCashMovementInMonth(simulation.getId(), YearMonth.of(2024, 6));
+
+        List<Transaction> results = transactionRepository.findBySimulationIdOrderByMonthDescCreatedAtAsc(simulation.getId());
+
+        assertEquals(2, results.size());
+        assertEquals(first.getId(), results.get(0).getId());
+        assertEquals(second.getId(), results.get(1).getId());
+        assertTrue(results.get(0).getCreatedAt().compareTo(results.get(1).getCreatedAt()) <= 0);
+    }
+
+    private Transaction persistCashMovementInMonth(UUID simulationId, YearMonth month) {
+        Transaction transaction = new Transaction();
+        transaction.setSimulationId(simulationId);
+        transaction.setType(TransactionType.DEPOSIT);
+        transaction.setMonth(month);
+        transaction.setAmount(new BigDecimal("250.00"));
+        return transactionRepository.saveAndFlush(transaction);
     }
 }

@@ -8,4 +8,6 @@ import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
     List<Transaction> findBySimulationId(UUID simulationId);
+
+    List<Transaction> findBySimulationIdOrderByMonthDescCreatedAtAsc(UUID simulationId);
 }
