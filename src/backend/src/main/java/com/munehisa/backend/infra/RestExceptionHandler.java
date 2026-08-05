@@ -2,6 +2,7 @@ package com.munehisa.backend.infra;
 
 import com.munehisa.backend.dto.AccountLockedResponseDTO;
 import com.munehisa.backend.exceptions.*;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.stream.Collectors;
 
 
+@Slf4j
 @ControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -26,7 +28,24 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<RestErrorMessage> runtimeExceptionHandler(RuntimeException exception) {
-        return buildErrorResponse(exception, HttpStatus.INTERNAL_SERVER_ERROR);
+        log.error("Unhandled runtime exception reached the generic exception handler", exception);
+        RestErrorMessage errorMessage = new RestErrorMessage(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorMessage);
+    }
+
+    @ExceptionHandler(AssetUnavailableException.class)
+    public ResponseEntity<RestErrorMessage> assetUnavailableHandler(AssetUnavailableException exception) {
+        return buildErrorResponse(exception, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @ExceptionHandler(ExchangeRateUnavailableException.class)
+    public ResponseEntity<RestErrorMessage> exchangeRateUnavailableHandler(ExchangeRateUnavailableException exception) {
+        return buildErrorResponse(exception, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @ExceptionHandler(InflationUnavailableException.class)
+    public ResponseEntity<RestErrorMessage> inflationUnavailableHandler(InflationUnavailableException exception) {
+        return buildErrorResponse(exception, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     @ExceptionHandler(UserAlreadyExistsException.class)
