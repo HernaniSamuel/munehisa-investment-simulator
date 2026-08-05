@@ -14,20 +14,17 @@ import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
 import com.munehisa.backend.repository.PositionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -83,6 +80,16 @@ class AssetCacheServiceTest {
                 1_000_000L, null, null);
     }
 
+    // Confirms a single upsert() call for the given ticker/month with the price/volume that
+    // rawMonth(...) would produce - the atomic-upsert equivalent of the old assertSame(stale,
+    // updated) "same entity, mutated in place" check, since there's no entity to mutate anymore.
+    private void verifyMonthlyUpsert(String ticker, YearMonth month, String price) {
+        verify(assetMonthlyPriceRepository).upsert(
+                any(UUID.class), eq(ticker), eq(month.atDay(1)),
+                eq(new BigDecimal(price)), eq(new BigDecimal(price)), eq(new BigDecimal(price)), eq(new BigDecimal(price)),
+                eq(1_000_000L), isNull(), isNull());
+    }
+
     // --- Cold start ---------------------------------------------------------------------
 
     @Test
@@ -91,9 +98,7 @@ class AssetCacheServiceTest {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
                 List.of(rawMonth(YearMonth.of(2024, 1), "180.00"), rawMonth(YearMonth.of(2024, 2), "185.00"))));
-        when(assetMonthlyPriceRepository.findByTicker("AAPL")).thenReturn(List.of());
         when(assetCatalogRepository.findByTicker("AAPL"))
-                .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1))));
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
                 .thenReturn(Optional.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
@@ -105,10 +110,9 @@ class AssetCacheServiceTest {
         AssetCacheService service = buildService();
         AssetLookupResultDTO result = service.getAssetSeries("aapl", YearMonth.of(2024, 2));
 
-        ArgumentCaptor<List<AssetMonthlyPrice>> captor = ArgumentCaptor.forClass(List.class);
-        verify(assetMonthlyPriceRepository).saveAll(captor.capture());
-        assertEquals(2, captor.getValue().size());
-        verify(assetCatalogRepository).save(any(AssetCatalog.class));
+        verify(assetCatalogRepository).upsert(any(UUID.class), eq("AAPL"), eq("Apple Inc."), eq("USD"), eq(LocalDate.of(2024, 1, 1)));
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 1), "180.00");
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 2), "185.00");
         assertEquals("AAPL", result.ticker());
         assertEquals("Apple Inc.", result.name());
         assertFalse(result.truncated());
@@ -125,7 +129,8 @@ class AssetCacheServiceTest {
 
         assertThrows(AssetUnavailableException.class, () ->
                 service.getAssetSeries("AAPL", YearMonth.of(2024, 6)));
-        verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+        verify(assetMonthlyPriceRepository, never()).upsert(
+                any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     @Test
@@ -138,7 +143,8 @@ class AssetCacheServiceTest {
 
         assertThrows(AssetNotFoundException.class, () ->
                 service.getAssetSeries("NOTATICKER", YearMonth.of(2024, 6)));
-        verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+        verify(assetMonthlyPriceRepository, never()).upsert(
+                any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     // --- Lookup bounds -------------------------------------------------------------------
@@ -193,7 +199,6 @@ class AssetCacheServiceTest {
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
                 .thenReturn(Optional.of(juneRow));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
-        when(assetMonthlyPriceRepository.findByTicker("AAPL")).thenReturn(new ArrayList<>(List.of(juneRow)));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
                 List.of(rawMonth(YearMonth.of(2024, 6), "200.00"))));
@@ -221,7 +226,6 @@ class AssetCacheServiceTest {
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
                 .thenReturn(Optional.of(juneRow), Optional.of(julyRow));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
-        when(assetMonthlyPriceRepository.findByTicker("AAPL")).thenReturn(new ArrayList<>(List.of(juneRow)));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
                 List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00"))));
@@ -232,7 +236,8 @@ class AssetCacheServiceTest {
         AssetLookupResultDTO result = service.getAssetSeries("AAPL", YearMonth.of(2024, 7));
 
         verify(dataServiceAssetClient).fetchSeries("AAPL");
-        verify(assetMonthlyPriceRepository).saveAll(anyList());
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 6), "200.00");
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 7), "205.00");
         assertFalse(result.truncated());
         assertEquals(YearMonth.of(2024, 7), result.returnedMonth());
     }
@@ -254,7 +259,8 @@ class AssetCacheServiceTest {
 
         assertFalse(result.truncated());
         verify(dataServiceAssetClient, never()).fetchSeries(anyString());
-        verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+        verify(assetMonthlyPriceRepository, never()).upsert(
+                any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     @Test
@@ -267,7 +273,6 @@ class AssetCacheServiceTest {
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
                 .thenReturn(Optional.of(staleJuneRow), Optional.of(julyRow));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
-        when(assetMonthlyPriceRepository.findByTicker("AAPL")).thenReturn(new ArrayList<>(List.of(staleJuneRow)));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
                 List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00"))));
@@ -277,16 +282,12 @@ class AssetCacheServiceTest {
         AssetCacheService service = buildService();
         service.getAssetSeries("AAPL", YearMonth.of(2024, 7));
 
-        ArgumentCaptor<List<AssetMonthlyPrice>> captor = ArgumentCaptor.forClass(List.class);
-        verify(assetMonthlyPriceRepository).saveAll(captor.capture());
-        List<AssetMonthlyPrice> saved = captor.getValue();
-
-        assertEquals(2, saved.size()); // updated in place, not duplicated
-        AssetMonthlyPrice updatedJuneRow = saved.stream()
-                .filter(r -> r.getReferenceMonth().equals(YearMonth.of(2024, 6)))
-                .findFirst().orElseThrow();
-        assertSame(staleJuneRow, updatedJuneRow); // same entity, mutated - not a new row
-        assertEquals(0, new BigDecimal("200.00").compareTo(updatedJuneRow.getOpen()));
+        // exactly one upsert call per month - the revised June value overwrites the stale
+        // one atomically (ON CONFLICT DO UPDATE) rather than inserting a duplicate row
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 6), "200.00");
+        verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 7), "205.00");
+        verify(assetMonthlyPriceRepository, times(2)).upsert(
+                any(UUID.class), eq("AAPL"), any(LocalDate.class), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     @Test
@@ -309,7 +310,8 @@ class AssetCacheServiceTest {
 
         assertTrue(result.truncated());
         assertEquals(YearMonth.of(2024, 6), result.returnedMonth());
-        verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+        verify(assetMonthlyPriceRepository, never()).upsert(
+                any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     @Test
@@ -332,7 +334,8 @@ class AssetCacheServiceTest {
 
         assertTrue(result.truncated());
         assertEquals(YearMonth.of(2024, 6), result.returnedMonth());
-        verify(assetMonthlyPriceRepository, never()).saveAll(anyList());
+        verify(assetMonthlyPriceRepository, never()).upsert(
+                any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
     // --- Eviction --------------------------------------------------------------------------

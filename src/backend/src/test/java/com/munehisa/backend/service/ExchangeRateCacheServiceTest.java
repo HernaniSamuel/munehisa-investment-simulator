@@ -8,20 +8,19 @@ import com.munehisa.backend.exceptions.ExchangeRateUnavailableException;
 import com.munehisa.backend.repository.ExchangeRateRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -63,6 +62,15 @@ class ExchangeRateCacheServiceTest {
         return BigDecimal.ONE.divide(new BigDecimal(value), MATH_CONTEXT);
     }
 
+    // Confirms a single upsert() call for the given pair/month with the given OHLC - the
+    // atomic-upsert equivalent of the old assertSame(stale, updated) "same entity, mutated in
+    // place" check, since there's no entity to mutate anymore.
+    private void verifyMonthlyUpsert(String base, String quote, YearMonth month, String open, String high, String low, String close) {
+        verify(exchangeRateRepository).upsert(
+                any(UUID.class), eq(base), eq(quote), eq(month.atDay(1)),
+                eq(new BigDecimal(open)), eq(new BigDecimal(high)), eq(new BigDecimal(low)), eq(new BigDecimal(close)));
+    }
+
     /** Stubs the three lookup queries against an in-memory row set, mirroring what the
      *  real derived queries (proven in ExchangeRateRepositoryTest) would return for that
      *  data. Only valid for tests where no refresh fires - the cached state doesn't
@@ -92,7 +100,6 @@ class ExchangeRateCacheServiceTest {
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 1), new BigDecimal("0.20"), new BigDecimal("0.21"), new BigDecimal("0.19"), new BigDecimal("0.205")),
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("0.205"), new BigDecimal("0.22"), new BigDecimal("0.20"), new BigDecimal("0.215"))
         ));
-        when(exchangeRateRepository.findByBaseCurrencyAndQuoteCurrency("BRL", "USD")).thenReturn(List.of());
         stubLookupQueries("BRL", "USD", YearMonth.of(2024, 2), List.of(
                 row("BRL", "USD", YearMonth.of(2024, 1), "0.20", "0.21", "0.19", "0.205"),
                 row("BRL", "USD", YearMonth.of(2024, 2), "0.205", "0.22", "0.20", "0.215")
@@ -101,9 +108,8 @@ class ExchangeRateCacheServiceTest {
         ExchangeRateCacheService service = buildService();
         ExchangeRateLookupResultDTO result = service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 2));
 
-        ArgumentCaptor<List<ExchangeRate>> captor = ArgumentCaptor.forClass(List.class);
-        verify(exchangeRateRepository).saveAll(captor.capture());
-        assertEquals(2, captor.getValue().size());
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 1), "0.20", "0.21", "0.19", "0.205");
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 2), "0.205", "0.22", "0.20", "0.215");
         assertEquals(YearMonth.of(2024, 2), result.returnedMonth());
         assertEquals(0, new BigDecimal("0.215").compareTo(result.close()));
     }
@@ -118,7 +124,7 @@ class ExchangeRateCacheServiceTest {
 
         assertThrows(ExchangeRateUnavailableException.class, () ->
                 service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 6)));
-        verify(exchangeRateRepository, never()).saveAll(anyList());
+        verify(exchangeRateRepository, never()).upsert(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // --- Canonical vs non-canonical direction --------------------------------------------
@@ -240,8 +246,6 @@ class ExchangeRateCacheServiceTest {
                 .thenReturn(Optional.of(juneRow));
         when(exchangeRateRepository.findFirstByBaseCurrencyAndQuoteCurrencyAndReferenceMonthLessThanEqualOrderByReferenceMonthDesc(
                 "BRL", "USD", YearMonth.of(2024, 7))).thenReturn(Optional.of(julyRow));
-        when(exchangeRateRepository.findByBaseCurrencyAndQuoteCurrency("BRL", "USD"))
-                .thenReturn(new ArrayList<>(List.of(juneRow)));
         when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(List.of(
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 6), new BigDecimal("0.20"), new BigDecimal("0.21"), new BigDecimal("0.19"), new BigDecimal("0.20")),
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 7), new BigDecimal("0.21"), new BigDecimal("0.22"), new BigDecimal("0.20"), new BigDecimal("0.215"))
@@ -251,7 +255,8 @@ class ExchangeRateCacheServiceTest {
         ExchangeRateLookupResultDTO result = service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 7));
 
         verify(dataServiceExchangeRateClient).fetchSeries("BRL", "USD");
-        verify(exchangeRateRepository).saveAll(anyList());
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 6), "0.20", "0.21", "0.19", "0.20");
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 7), "0.21", "0.22", "0.20", "0.215");
         assertEquals(YearMonth.of(2024, 7), result.returnedMonth());
         assertTrue(result.newestAvailable());
     }
@@ -285,7 +290,7 @@ class ExchangeRateCacheServiceTest {
         service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 6));
 
         verify(dataServiceExchangeRateClient, never()).fetchSeries(anyString(), anyString());
-        verify(exchangeRateRepository, never()).saveAll(anyList());
+        verify(exchangeRateRepository, never()).upsert(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -301,8 +306,6 @@ class ExchangeRateCacheServiceTest {
                 .thenReturn(Optional.of(revisedJuneRow));
         when(exchangeRateRepository.findFirstByBaseCurrencyAndQuoteCurrencyAndReferenceMonthLessThanEqualOrderByReferenceMonthDesc(
                 "BRL", "USD", YearMonth.of(2024, 7))).thenReturn(Optional.of(julyRow));
-        when(exchangeRateRepository.findByBaseCurrencyAndQuoteCurrency("BRL", "USD"))
-                .thenReturn(new ArrayList<>(List.of(staleJuneRow)));
         when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(List.of(
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 6), new BigDecimal("0.20"), new BigDecimal("0.21"), new BigDecimal("0.19"), new BigDecimal("0.20")),
                 new RawExchangeMonthDataPoint(YearMonth.of(2024, 7), new BigDecimal("0.21"), new BigDecimal("0.22"), new BigDecimal("0.20"), new BigDecimal("0.215"))
@@ -311,16 +314,12 @@ class ExchangeRateCacheServiceTest {
         ExchangeRateCacheService service = buildService();
         service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 7));
 
-        ArgumentCaptor<List<ExchangeRate>> captor = ArgumentCaptor.forClass(List.class);
-        verify(exchangeRateRepository).saveAll(captor.capture());
-        List<ExchangeRate> saved = captor.getValue();
-
-        assertEquals(2, saved.size()); // updated in place, not duplicated
-        ExchangeRate updatedJuneRow = saved.stream()
-                .filter(r -> r.getReferenceMonth().equals(YearMonth.of(2024, 6)))
-                .findFirst().orElseThrow();
-        assertSame(staleJuneRow, updatedJuneRow); // same entity, mutated - not a new row
-        assertEquals(0, new BigDecimal("0.20").compareTo(updatedJuneRow.getOpen()));
+        // exactly one upsert call per month - the revised June value overwrites the stale
+        // one atomically (ON CONFLICT DO UPDATE) rather than inserting a duplicate row
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 6), "0.20", "0.21", "0.19", "0.20");
+        verifyMonthlyUpsert("BRL", "USD", YearMonth.of(2024, 7), "0.21", "0.22", "0.20", "0.215");
+        verify(exchangeRateRepository, times(2)).upsert(
+                any(UUID.class), eq("BRL"), eq("USD"), any(LocalDate.class), any(), any(), any(), any());
     }
 
     @Test
@@ -341,6 +340,6 @@ class ExchangeRateCacheServiceTest {
                 service.getExchangeRate("BRL", "USD", YearMonth.of(2024, 7)));
 
         assertEquals(YearMonth.of(2024, 6), result.returnedMonth());
-        verify(exchangeRateRepository, never()).saveAll(anyList());
+        verify(exchangeRateRepository, never()).upsert(any(), any(), any(), any(), any(), any(), any(), any());
     }
 }

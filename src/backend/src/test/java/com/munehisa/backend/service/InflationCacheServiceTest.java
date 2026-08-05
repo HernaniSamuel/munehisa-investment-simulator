@@ -9,7 +9,6 @@ import com.munehisa.backend.exceptions.InflationUnavailableException;
 import com.munehisa.backend.repository.InflationIndexRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -19,14 +18,13 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 /**
@@ -70,6 +68,17 @@ class InflationCacheServiceTest {
                 .getAccumulatedIndex();
     }
 
+    // Confirms a single upsert() call for the given currency/month/index - the atomic-upsert
+    // equivalent of the old assertSame(stale, updated) "same entity, mutated in place" check,
+    // since there's no entity to mutate anymore. The index is compared with compareTo (not
+    // eq()) because BRL's chained BigDecimal multiplication under MathContext(50) can produce
+    // a different scale than a literal BigDecimal of the same numeric value.
+    private void verifyMonthlyUpsert(InflationCurrency currency, YearMonth month, String index) {
+        verify(inflationIndexRepository).upsert(
+                any(UUID.class), eq(currency.name()), eq(month.atDay(1)),
+                argThat(actual -> actual.compareTo(new BigDecimal(index)) == 0));
+    }
+
     /** Stubs the three lookup queries against an in-memory row set, mirroring what the real
      *  derived queries (proven in InflationIndexRepositoryTest) would return for that data. */
     private void stubLookupQueries(InflationCurrency currency, YearMonth targetMonth, List<InflationIndex> rows) {
@@ -98,7 +107,6 @@ class InflationCacheServiceTest {
                 new RawInflationDataPoint(YearMonth.of(2024, 2), new BigDecimal("5")),
                 new RawInflationDataPoint(YearMonth.of(2024, 3), new BigDecimal("2"))
         ));
-        when(inflationIndexRepository.findByCurrency(InflationCurrency.BRL)).thenReturn(List.of());
         stubLookupQueries(InflationCurrency.BRL, YearMonth.of(2024, 3), List.of(
                 row(InflationCurrency.BRL, YearMonth.of(2024, 1), "100"),
                 row(InflationCurrency.BRL, YearMonth.of(2024, 2), "105"),
@@ -108,17 +116,12 @@ class InflationCacheServiceTest {
         InflationCacheService service = buildService(fixedClockOn(LocalDate.of(2024, 3, 15)), 20);
         InflationLookupResultDTO result = service.getInflationIndex(InflationCurrency.BRL, YearMonth.of(2024, 3));
 
-        ArgumentCaptor<List<InflationIndex>> captor = ArgumentCaptor.forClass(List.class);
-        verify(inflationIndexRepository).saveAll(captor.capture());
-        List<InflationIndex> saved = captor.getValue();
-
-        assertEquals(3, saved.size());
         // base month: anchored at 100, its own 10% rate is not compounded in
-        assertEquals(0, new BigDecimal("100").compareTo(indexFor(saved, YearMonth.of(2024, 1))));
+        verifyMonthlyUpsert(InflationCurrency.BRL, YearMonth.of(2024, 1), "100");
         // 100 * 1.05
-        assertEquals(0, new BigDecimal("105").compareTo(indexFor(saved, YearMonth.of(2024, 2))));
+        verifyMonthlyUpsert(InflationCurrency.BRL, YearMonth.of(2024, 2), "105");
         // 105 * 1.02
-        assertEquals(0, new BigDecimal("107.1").compareTo(indexFor(saved, YearMonth.of(2024, 3))));
+        verifyMonthlyUpsert(InflationCurrency.BRL, YearMonth.of(2024, 3), "107.1");
         assertEquals(0, new BigDecimal("107.1").compareTo(result.accumulatedIndex()));
     }
 
@@ -129,7 +132,6 @@ class InflationCacheServiceTest {
                 new RawInflationDataPoint(YearMonth.of(2024, 1), new BigDecimal("300.0")),
                 new RawInflationDataPoint(YearMonth.of(2024, 2), new BigDecimal("301.5"))
         ));
-        when(inflationIndexRepository.findByCurrency(InflationCurrency.USD)).thenReturn(List.of());
         stubLookupQueries(InflationCurrency.USD, YearMonth.of(2024, 2), List.of(
                 row(InflationCurrency.USD, YearMonth.of(2024, 1), "300.0"),
                 row(InflationCurrency.USD, YearMonth.of(2024, 2), "301.5")
@@ -138,12 +140,8 @@ class InflationCacheServiceTest {
         InflationCacheService service = buildService(fixedClockOn(LocalDate.of(2024, 2, 15)), 20);
         service.getInflationIndex(InflationCurrency.USD, YearMonth.of(2024, 2));
 
-        ArgumentCaptor<List<InflationIndex>> captor = ArgumentCaptor.forClass(List.class);
-        verify(inflationIndexRepository).saveAll(captor.capture());
-        List<InflationIndex> saved = captor.getValue();
-
-        assertEquals(0, new BigDecimal("300.0").compareTo(indexFor(saved, YearMonth.of(2024, 1))));
-        assertEquals(0, new BigDecimal("301.5").compareTo(indexFor(saved, YearMonth.of(2024, 2))));
+        verifyMonthlyUpsert(InflationCurrency.USD, YearMonth.of(2024, 1), "300.0");
+        verifyMonthlyUpsert(InflationCurrency.USD, YearMonth.of(2024, 2), "301.5");
     }
 
     @Test
@@ -156,7 +154,7 @@ class InflationCacheServiceTest {
 
         assertThrows(InflationUnavailableException.class, () ->
                 service.getInflationIndex(InflationCurrency.BRL, YearMonth.of(2024, 6)));
-        verify(inflationIndexRepository, never()).saveAll(anyList());
+        verify(inflationIndexRepository, never()).upsert(any(), any(), any(), any());
     }
 
     // --- Single-month lookup with fallback ----------------------------------------------
@@ -260,8 +258,6 @@ class InflationCacheServiceTest {
         when(inflationIndexRepository.existsByCurrency(InflationCurrency.USD)).thenReturn(true);
         YearMonth currentMonth = YearMonth.of(2024, 7);
         when(inflationIndexRepository.existsByCurrencyAndReferenceMonth(InflationCurrency.USD, currentMonth)).thenReturn(false);
-        when(inflationIndexRepository.findByCurrency(InflationCurrency.USD))
-                .thenReturn(new ArrayList<>(List.of(row(InflationCurrency.USD, YearMonth.of(2024, 6), "300"))));
         when(dataServiceInflationClient.fetchSeries(InflationCurrency.USD)).thenReturn(List.of(
                 new RawInflationDataPoint(YearMonth.of(2024, 6), new BigDecimal("300")),
                 new RawInflationDataPoint(currentMonth, new BigDecimal("301"))
@@ -275,7 +271,8 @@ class InflationCacheServiceTest {
         service.getInflationIndex(InflationCurrency.USD, currentMonth);
 
         verify(dataServiceInflationClient).fetchSeries(InflationCurrency.USD);
-        verify(inflationIndexRepository).saveAll(anyList());
+        verifyMonthlyUpsert(InflationCurrency.USD, YearMonth.of(2024, 6), "300");
+        verifyMonthlyUpsert(InflationCurrency.USD, currentMonth, "301");
     }
 
     @Test
@@ -283,8 +280,6 @@ class InflationCacheServiceTest {
         when(inflationIndexRepository.existsByCurrency(InflationCurrency.USD)).thenReturn(true);
         YearMonth currentMonth = YearMonth.of(2024, 7);
         when(inflationIndexRepository.existsByCurrencyAndReferenceMonth(InflationCurrency.USD, currentMonth)).thenReturn(false);
-        when(inflationIndexRepository.findByCurrency(InflationCurrency.USD))
-                .thenReturn(new ArrayList<>(List.of(row(InflationCurrency.USD, YearMonth.of(2024, 6), "300"))));
         when(dataServiceInflationClient.fetchSeries(InflationCurrency.USD)).thenReturn(List.of(
                 new RawInflationDataPoint(YearMonth.of(2024, 6), new BigDecimal("300")),
                 new RawInflationDataPoint(currentMonth, new BigDecimal("301"))
@@ -312,7 +307,7 @@ class InflationCacheServiceTest {
         service.getInflationIndex(InflationCurrency.USD, YearMonth.of(2024, 6));
 
         verify(dataServiceInflationClient, never()).fetchSeries(any());
-        verify(inflationIndexRepository, never()).saveAll(anyList());
+        verify(inflationIndexRepository, never()).upsert(any(), any(), any(), any());
     }
 
     @Test
@@ -337,10 +332,6 @@ class InflationCacheServiceTest {
         YearMonth currentMonth = YearMonth.of(2024, 7);
         when(inflationIndexRepository.existsByCurrencyAndReferenceMonth(InflationCurrency.USD, currentMonth)).thenReturn(false);
 
-        InflationIndex staleMarchRow = row(InflationCurrency.USD, YearMonth.of(2024, 3), "299.0"); // pre-revision value
-        when(inflationIndexRepository.findByCurrency(InflationCurrency.USD))
-                .thenReturn(new ArrayList<>(List.of(staleMarchRow)));
-
         when(dataServiceInflationClient.fetchSeries(InflationCurrency.USD)).thenReturn(List.of(
                 new RawInflationDataPoint(YearMonth.of(2024, 3), new BigDecimal("299.5")), // BLS/FRED revised this month
                 new RawInflationDataPoint(currentMonth, new BigDecimal("301.0"))
@@ -353,16 +344,11 @@ class InflationCacheServiceTest {
         InflationCacheService service = buildService(fixedClockOn(LocalDate.of(2024, 7, 20)), 20);
         service.getInflationIndex(InflationCurrency.USD, currentMonth);
 
-        ArgumentCaptor<List<InflationIndex>> captor = ArgumentCaptor.forClass(List.class);
-        verify(inflationIndexRepository).saveAll(captor.capture());
-        List<InflationIndex> saved = captor.getValue();
-
-        assertEquals(2, saved.size()); // updated in place, not duplicated
-        InflationIndex updatedMarchRow = saved.stream()
-                .filter(r -> r.getReferenceMonth().equals(YearMonth.of(2024, 3)))
-                .findFirst().orElseThrow();
-        assertSame(staleMarchRow, updatedMarchRow); // same entity, mutated - not a new row
-        assertEquals(0, new BigDecimal("299.5").compareTo(updatedMarchRow.getAccumulatedIndex()));
+        // exactly one upsert call per month - the revised March value overwrites the stale
+        // one atomically (ON CONFLICT DO UPDATE) rather than inserting a duplicate row
+        verifyMonthlyUpsert(InflationCurrency.USD, YearMonth.of(2024, 3), "299.5");
+        verifyMonthlyUpsert(InflationCurrency.USD, currentMonth, "301.0");
+        verify(inflationIndexRepository, times(2)).upsert(any(UUID.class), eq("USD"), any(LocalDate.class), any());
     }
 
     @Test
@@ -382,6 +368,6 @@ class InflationCacheServiceTest {
                 service.getInflationIndex(InflationCurrency.USD, YearMonth.of(2024, 6)));
 
         assertEquals(YearMonth.of(2024, 6), result.returnedMonth());
-        verify(inflationIndexRepository, never()).saveAll(anyList());
+        verify(inflationIndexRepository, never()).upsert(any(), any(), any(), any());
     }
 }
