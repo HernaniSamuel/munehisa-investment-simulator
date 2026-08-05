@@ -106,7 +106,7 @@ class DataServiceAssetClientTest {
                         {
                           "query": "petr",
                           "results": [
-                            {"ticker": "PETR4.SA", "name": "Petrobras", "exchange": "SAO", "asset_type": "EQUITY"}
+                            {"ticker": "PETR4.SA", "name": "Petrobras", "exchange": "SAO", "assetType": "EQUITY"}
                           ]
                         }
                         """, MediaType.APPLICATION_JSON));
