@@ -24,6 +24,7 @@ import com.munehisa.backend.dto.PositionWithValuationDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TickerSearchResultDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.dto.TransactionResponseDTO;
@@ -73,6 +74,7 @@ public class SimulationService {
     private final AssetCatalogRepository assetCatalogRepository;
     private final AssetCacheService assetCacheService;
     private final ExchangeRateCacheService exchangeRateCacheService;
+    private final DataServiceAssetClient dataServiceAssetClient;
 
     public SimulationResponseDTO create(CreateSimulationRequestDTO request, User user) {
         YearMonth currentMonth = YearMonth.now(clock);
@@ -110,6 +112,17 @@ public class SimulationService {
                 lookup.ticker(), lookup.name(), lookup.baseCurrency(),
                 lookup.requestedMonth(), lookup.returnedMonth(), lookup.truncated(),
                 lookup.series(), cashBalance);
+    }
+
+    // Deliberately bypasses AssetCacheService: search results are never persisted, and their
+    // freshness cache lives in data-service. findOwned is the only simulation-specific part
+    // of this call - the search itself isn't scoped to a simulation.
+    public List<TickerSearchResultDTO> searchTickers(UUID id, String query, User user) {
+        findOwned(id, user);
+        return dataServiceAssetClient.searchTickers(query).stream()
+                .map(result -> new TickerSearchResultDTO(
+                        result.ticker(), result.name(), result.exchange(), result.assetType()))
+                .toList();
     }
 
     // Read-only: never saves a Position or Simulation, so weight/totalAssetValue on those rows

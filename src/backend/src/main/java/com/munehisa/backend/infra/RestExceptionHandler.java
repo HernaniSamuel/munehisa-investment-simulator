@@ -48,6 +48,11 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         return buildErrorResponse(exception, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
+    @ExceptionHandler(TickerSearchUnavailableException.class)
+    public ResponseEntity<RestErrorMessage> tickerSearchUnavailableHandler(TickerSearchUnavailableException exception) {
+        return buildErrorResponse(exception, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
     @ExceptionHandler(UserAlreadyExistsException.class)
     public ResponseEntity<RestErrorMessage> userAlreadyExistsHandler(UserAlreadyExistsException exception) {
         return buildErrorResponse(exception, HttpStatus.CONFLICT);

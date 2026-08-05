@@ -22,8 +22,10 @@ import com.munehisa.backend.dto.TransactionResponseDTO;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
 import com.munehisa.backend.dto.dataservice.RawExchangeMonthDataPoint;
+import com.munehisa.backend.dto.dataservice.RawTickerSearchResult;
 import com.munehisa.backend.exceptions.AssetDataServiceException;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
+import com.munehisa.backend.exceptions.TickerSearchUnavailableException;
 import com.munehisa.backend.infra.security.TokenService;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
@@ -58,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -491,6 +494,106 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     @Test
     void searchAsset_withoutToken_returns401() throws Exception {
         mockMvc.perform(get("/simulations/{id}/assets/{ticker}", UUID.randomUUID(), "AAPL"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- searchTickers ----------------------------------------------------------------------
+
+    @Test
+    void searchTickers_returns200WithResultsFromDataService() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        when(dataServiceAssetClient.searchTickers("petr4")).thenReturn(
+                List.of(new RawTickerSearchResult("PETR4.SA", "Petrobras", "SAO", "EQUITY")));
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", simulation.getId())
+                        .param("query", "petr4")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].ticker").value("PETR4.SA"))
+                .andExpect(jsonPath("$[0].name").value("Petrobras"))
+                .andExpect(jsonPath("$[0].exchange").value("SAO"))
+                .andExpect(jsonPath("$[0].assetType").value("EQUITY"));
+    }
+
+    @Test
+    void searchTickers_forwardsQueryToDataServiceUnmodified() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        when(dataServiceAssetClient.searchTickers("petr4")).thenReturn(List.of());
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", simulation.getId())
+                        .param("query", "petr4")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        verify(dataServiceAssetClient).searchTickers("petr4");
+    }
+
+    @Test
+    void searchTickers_noMatches_returns200WithEmptyArray() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        when(dataServiceAssetClient.searchTickers("zzz")).thenReturn(List.of());
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", simulation.getId())
+                        .param("query", "zzz")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void searchTickers_dataServiceUnavailable_returns503() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        when(dataServiceAssetClient.searchTickers("petr4"))
+                .thenThrow(new TickerSearchUnavailableException(new RuntimeException("502")));
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", simulation.getId())
+                        .param("query", "petr4")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void searchTickers_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", UUID.randomUUID())
+                        .param("query", "petr4")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchTickers_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD");
+
+        mockMvc.perform(get("/simulations/{id}/assets/search", simulation.getId())
+                        .param("query", "petr4")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void searchTickers_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/simulations/{id}/assets/search", UUID.randomUUID()).param("query", "petr4"))
                 .andExpect(status().isUnauthorized());
     }
 
