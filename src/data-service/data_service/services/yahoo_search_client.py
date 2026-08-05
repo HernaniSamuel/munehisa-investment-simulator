@@ -91,7 +91,7 @@ def _to_results(payload: dict[str, Any]) -> list[AssetSearchResult]:
                 ticker=ticker,
                 name=quote.get("longname") or quote.get("shortname") or ticker,
                 exchange=quote.get("exchange"),
-                asset_type=quote.get("quoteType"),
+                assetType=quote.get("quoteType"),
             )
         )
         if len(results) == _MAX_RESULTS:

@@ -110,7 +110,7 @@ _SAMPLE_SEARCH_RESPONSE = AssetSearchResponse(
             ticker="PETR4.SA",
             name="Petróleo Brasileiro S.A.",
             exchange="SAO",
-            asset_type="EQUITY",
+            assetType="EQUITY",
         ),
     ],
 )
@@ -129,7 +129,7 @@ def test_search_assets_returns_200_with_results(client, auth_headers, monkeypatc
             "ticker": "PETR4.SA",
             "name": "Petróleo Brasileiro S.A.",
             "exchange": "SAO",
-            "asset_type": "EQUITY",
+            "assetType": "EQUITY",
         }
     ]
 
