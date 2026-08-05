@@ -19,7 +19,9 @@ import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.ExchangeRateLookupResultDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.InflationLookupResultDTO;
+import com.munehisa.backend.dto.PositionWithValuationDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
+import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
@@ -309,6 +311,147 @@ class SimulationServiceTest {
 
     private ExchangeRateLookupResultDTO exchangeRate(String from, String to, YearMonth month, BigDecimal rate) {
         return new ExchangeRateLookupResultDTO(from, to, month, month, rate, rate, rate, rate, true, true);
+    }
+
+    // --- listPositions --------------------------------------------------------------------
+
+    @Test
+    void listPositions_noOpenPositions_returnsEmptyListAndZeroTotals() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
+
+        SimulationPositionsResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listPositions(simulation.getId(), user);
+
+        assertTrue(response.positions().isEmpty());
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalAssetValue()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalGainAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalGainPercent()));
+        verifyNoInteractions(assetCacheService, exchangeRateCacheService);
+    }
+
+    @Test
+    void listPositions_neverSnapshotted_allGainsZero() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+        // snapshotRepository.findBySimulationId(any()) already defaults to Optional.empty() (stubSnapshotWriteDefaults).
+
+        SimulationPositionsResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listPositions(simulation.getId(), user);
+
+        assertEquals(1, response.positions().size());
+        PositionWithValuationDTO positionDto = response.positions().get(0);
+        assertEquals(0, new BigDecimal("600.00").compareTo(positionDto.marketValue()));
+        assertEquals(0, new BigDecimal("500.00").compareTo(positionDto.costBasis()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(positionDto.gainAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(positionDto.gainPercent()));
+        assertEquals(0, new BigDecimal("600.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalGainAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.totalGainPercent()));
+    }
+
+    @Test
+    void listPositions_noMatchingSnapshotPositionForTicker_gainZero() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        Snapshot snapshot = new Snapshot(UUID.randomUUID(), simulation.getId(), BigDecimal.ZERO, BigDecimal.ZERO);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(snapshot));
+        when(snapshotPositionRepository.findBySnapshotId(snapshot.getId()))
+                .thenReturn(List.of(snapshotPosition(snapshot.getId(), "MSFT", "Microsoft Corp.", 5, "200.00", "0.00")));
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+
+        SimulationPositionsResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listPositions(simulation.getId(), user);
+
+        PositionWithValuationDTO positionDto = response.positions().get(0);
+        assertEquals(0, BigDecimal.ZERO.compareTo(positionDto.gainAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(positionDto.gainPercent()));
+    }
+
+    @Test
+    void listPositions_partiallySoldSinceSnapshot_baselineCostBasisReducedProportionally() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        // Snapshot captured 10 shares at costBasis 500.00; a same-month partial sell of 4 shares
+        // has already reduced the live position to 6 shares / costBasis 300.00 (sell()'s own
+        // proportional-reduction formula: 500.00 * 4 / 10 removed).
+        Position existingPosition = position(simulation.getId(), assetId, 6, "1.0", "300.00", "0.00");
+        Snapshot snapshot = new Snapshot(UUID.randomUUID(), simulation.getId(), BigDecimal.ZERO, BigDecimal.ZERO);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(snapshot));
+        when(snapshotPositionRepository.findBySnapshotId(snapshot.getId()))
+                .thenReturn(List.of(snapshotPosition(snapshot.getId(), "AAPL", "Apple Inc.", 10, "500.00", "0.00")));
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+
+        SimulationPositionsResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listPositions(simulation.getId(), user);
+
+        // baselineQty = min(6, 10) = 6; baselineCostBasis = 500.00 * 6 / 10 = 300.00 (neither
+        // zeroed nor left at the full 500.00 snapshot cost basis).
+        // gainAmount = 6 * 60.00 - 300.00 = 60.00; gainPercent = 60.00 / 300.00 = 0.2.
+        PositionWithValuationDTO positionDto = response.positions().get(0);
+        assertEquals(0, new BigDecimal("360.00").compareTo(positionDto.marketValue()));
+        assertEquals(0, new BigDecimal("300.00").compareTo(positionDto.costBasis()));
+        assertEquals(0, new BigDecimal("60.00").compareTo(positionDto.gainAmount()));
+        assertEquals(0, new BigDecimal("0.2").compareTo(positionDto.gainPercent()));
+    }
+
+    @Test
+    void listPositions_nonzeroDividendsReceived_gainUnaffectedByDividends() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position existingPosition = position(simulation.getId(), assetId, 10, "1.0", "500.00", "50.00");
+        Snapshot snapshot = new Snapshot(UUID.randomUUID(), simulation.getId(), BigDecimal.ZERO, BigDecimal.ZERO);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(snapshotRepository.findBySimulationId(simulation.getId())).thenReturn(Optional.of(snapshot));
+        when(snapshotPositionRepository.findBySnapshotId(snapshot.getId()))
+                .thenReturn(List.of(snapshotPosition(snapshot.getId(), "AAPL", "Apple Inc.", 10, "500.00", "25.00")));
+        when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
+                .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
+
+        SimulationPositionsResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .listPositions(simulation.getId(), user);
+
+        // Both Position.totalDividendsReceived (50.00) and SnapshotPosition.totalDividendsReceived
+        // (25.00) are nonzero, but gain still equals the baseline formula alone:
+        // gainAmount = 10 * 60.00 - 500.00 = 100.00; gainPercent = 100.00 / 500.00 = 0.2.
+        PositionWithValuationDTO positionDto = response.positions().get(0);
+        assertEquals(0, new BigDecimal("100.00").compareTo(positionDto.gainAmount()));
+        assertEquals(0, new BigDecimal("0.2").compareTo(positionDto.gainPercent()));
     }
 
     // --- deposit --------------------------------------------------------------------------
@@ -1638,6 +1781,19 @@ class SimulationServiceTest {
         position.setCostBasis(new BigDecimal(costBasis));
         position.setTotalDividendsReceived(new BigDecimal(totalDividendsReceived));
         return position;
+    }
+
+    private SnapshotPosition snapshotPosition(UUID snapshotId, String ticker, String assetName, long quantity, String costBasis, String totalDividendsReceived) {
+        SnapshotPosition snapshotPosition = new SnapshotPosition();
+        snapshotPosition.setId(UUID.randomUUID());
+        snapshotPosition.setSnapshotId(snapshotId);
+        snapshotPosition.setTicker(ticker);
+        snapshotPosition.setAssetName(assetName);
+        snapshotPosition.setQuantity(quantity);
+        snapshotPosition.setWeight(BigDecimal.ZERO);
+        snapshotPosition.setCostBasis(new BigDecimal(costBasis));
+        snapshotPosition.setTotalDividendsReceived(new BigDecimal(totalDividendsReceived));
+        return snapshotPosition;
     }
 
     private AssetCatalog assetCatalog(UUID id, String ticker, String name) {

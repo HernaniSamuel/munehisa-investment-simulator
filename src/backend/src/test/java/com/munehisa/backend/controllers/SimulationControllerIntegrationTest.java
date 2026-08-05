@@ -143,6 +143,10 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     }
 
     private AssetCatalog seedAssetCatalog(String ticker, String name) {
+        return seedAssetCatalog(ticker, name, new BigDecimal("180.00"));
+    }
+
+    private AssetCatalog seedAssetCatalog(String ticker, String name, BigDecimal closePrice) {
         AssetCatalog asset = new AssetCatalog();
         asset.setTicker(ticker);
         asset.setName(name);
@@ -156,10 +160,10 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         AssetMonthlyPrice price = new AssetMonthlyPrice();
         price.setTicker(ticker);
         price.setReferenceMonth(YearMonth.of(2024, 1));
-        price.setOpen(new BigDecimal("180.00"));
-        price.setHigh(new BigDecimal("180.00"));
-        price.setLow(new BigDecimal("180.00"));
-        price.setClose(new BigDecimal("180.00"));
+        price.setOpen(closePrice);
+        price.setHigh(closePrice);
+        price.setLow(closePrice);
+        price.setClose(closePrice);
         price.setVolume(1_000_000L);
         assetMonthlyPriceRepository.save(price);
 
@@ -302,7 +306,12 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         mockMvc.perform(get("/simulations").header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].name").value("A's plan"));
+                .andExpect(jsonPath("$[0].name").value("A's plan"))
+                // Issue #84 added GET /simulations/{id}/positions as a separate endpoint rather
+                // than extending this response shape - SimulationResponseDTO must stay as-is.
+                .andExpect(jsonPath("$[0].positions").doesNotExist())
+                .andExpect(jsonPath("$[0].totalGainAmount").doesNotExist())
+                .andExpect(jsonPath("$[0].totalGainPercent").doesNotExist());
     }
 
     @Test
@@ -326,7 +335,12 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.name").value("Retirement plan"))
                 .andExpect(jsonPath("$.baseCurrency").value("BRL"))
                 .andExpect(jsonPath("$.cashBalance").value(0))
-                .andExpect(jsonPath("$.totalPatrimony").value(0));
+                .andExpect(jsonPath("$.totalPatrimony").value(0))
+                // Issue #84 added GET /simulations/{id}/positions as a separate endpoint rather
+                // than extending this response shape - SimulationResponseDTO must stay as-is.
+                .andExpect(jsonPath("$.positions").doesNotExist())
+                .andExpect(jsonPath("$.totalGainAmount").doesNotExist())
+                .andExpect(jsonPath("$.totalGainPercent").doesNotExist());
     }
 
     @Test
@@ -477,6 +491,146 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     void searchAsset_withoutToken_returns401() throws Exception {
         mockMvc.perform(get("/simulations/{id}/assets/{ticker}", UUID.randomUUID(), "AAPL"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // --- listPositions ----------------------------------------------------------------------
+
+    @Test
+    void listPositions_nonexistentSimulation_returns404() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+
+        mockMvc.perform(get("/simulations/{id}/positions", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listPositions_anotherUsersSimulation_returns404() throws Exception {
+        User owner = createUser(u -> {
+        });
+        User other = createUser(u -> u.setEmail("grace@example.com"));
+        String otherToken = tokenService.generateToken(other);
+        Simulation simulation = seedSimulation(owner.getId(), "Retirement plan", "USD");
+
+        mockMvc.perform(get("/simulations/{id}/positions", simulation.getId())
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void listPositions_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/simulations/{id}/positions", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void listPositions_worked_buyAdvanceBuy_gainRemainsAnchoredToPreRebuySnapshot() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD", new BigDecimal("5000.00"));
+        seedAssetCatalog("AAPL", "Apple Inc.", new BigDecimal("10.00"));
+
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new TradeRequestDTO("AAPL", 10L))))
+                .andExpect(status().isOk());
+
+        // seedAssetCatalog only cached January 2024 at 10.00; advancing to February forces a
+        // refresh, stubbed here to 10.50 - advanceMonth's own auto-snapshot then captures
+        // qty=10/costBasis=100.00 as the baseline before the second buy below.
+        when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
+                "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
+                List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("10.50"), new BigDecimal("10.50"),
+                        new BigDecimal("10.50"), new BigDecimal("10.50"), 1_000_000L, null, null))));
+
+        mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // Same month as the snapshot: buying 100 more shares at 10.50 brings the live position
+        // to quantity=110/costBasis=1150.00 (100.00 + 100 * 10.50), but must not dilute the
+        // gain already anchored to the pre-rebuy snapshot (qty=10/costBasis=100.00).
+        mockMvc.perform(post("/simulations/{id}/buy", simulation.getId())
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new TradeRequestDTO("AAPL", 100L))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/simulations/{id}/positions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positions.length()").value(1))
+                .andExpect(jsonPath("$.positions[0].ticker").value("AAPL"))
+                .andExpect(jsonPath("$.positions[0].quantity").value(110))
+                .andExpect(jsonPath("$.positions[0].currentPrice").value(10.50))
+                .andExpect(jsonPath("$.positions[0].wasTruncated").value(false))
+                // marketValue = 110 * 10.50 = 1155.00 (full live quantity, unlike the gain below).
+                .andExpect(jsonPath("$.positions[0].marketValue").value(1155.00))
+                // costBasis is the raw, live Position.costBasis - unmodified by the snapshot baseline.
+                .andExpect(jsonPath("$.positions[0].costBasis").value(1150.00))
+                // baselineQty = min(110, 10) = 10; gainAmount = 10 * 10.50 - 100.00 = 5.00.
+                .andExpect(jsonPath("$.positions[0].gainAmount").value(5.00))
+                .andExpect(jsonPath("$.positions[0].gainPercent").value(0.05))
+                .andExpect(jsonPath("$.totalAssetValue").value(1155.00))
+                .andExpect(jsonPath("$.totalGainAmount").value(5.00))
+                .andExpect(jsonPath("$.totalGainPercent").value(0.05));
+    }
+
+    @Test
+    void listPositions_multiplePositions_totalsSumAcrossPositions() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.", new BigDecimal("100.00"));
+        AssetCatalog msft = seedAssetCatalog("MSFT", "Microsoft Corp.", new BigDecimal("50.00"));
+        seedPosition(simulation.getId(), aapl.getId(), 10, new BigDecimal("800.00"), BigDecimal.ZERO);
+        seedPosition(simulation.getId(), msft.getId(), 10, new BigDecimal("400.00"), BigDecimal.ZERO);
+        Snapshot snapshot = seedSnapshot(simulation.getId(), BigDecimal.ZERO, new BigDecimal("1200.00"));
+        seedSnapshotPosition(snapshot.getId(), "AAPL", "Apple Inc.", 10, new BigDecimal("800.00"), BigDecimal.ZERO);
+        seedSnapshotPosition(snapshot.getId(), "MSFT", "Microsoft Corp.", 10, new BigDecimal("400.00"), BigDecimal.ZERO);
+
+        // AAPL: marketValue = 1000.00, gainAmount = 1000.00 - 800.00 = 200.00.
+        // MSFT: marketValue = 500.00, gainAmount = 500.00 - 400.00 = 100.00.
+        // totals: totalAssetValue = 1500.00, totalGainAmount = 300.00, totalGainPercent = 300.00 / 1200.00 = 0.25.
+        mockMvc.perform(get("/simulations/{id}/positions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.positions.length()").value(2))
+                .andExpect(jsonPath("$.totalAssetValue").value(1500.00))
+                .andExpect(jsonPath("$.totalGainAmount").value(300.00))
+                .andExpect(jsonPath("$.totalGainPercent").value(0.25));
+    }
+
+    @Test
+    void listPositions_doesNotMutatePersistedWeightOrTotalAssetValue() throws Exception {
+        User user = createUser(u -> {
+        });
+        String token = tokenService.generateToken(user);
+        Simulation simulation = seedSimulation(user.getId(), "Retirement plan", "USD");
+        simulation.setTotalAssetValue(new BigDecimal("123.45"));
+        simulation = simulationRepository.save(simulation);
+        AssetCatalog aapl = seedAssetCatalog("AAPL", "Apple Inc.", new BigDecimal("180.00"));
+        Position position = seedPosition(simulation.getId(), aapl.getId(), 5, new BigDecimal("900.00"), BigDecimal.ZERO);
+        position.setWeight(new BigDecimal("0.42"));
+        positionRepository.save(position);
+
+        // Live market value (5 * 180.00 = 900.00) differs from the persisted totalAssetValue
+        // (123.45) on purpose, so a silent overwrite would be caught by the assertions below.
+        mockMvc.perform(get("/simulations/{id}/positions", simulation.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAssetValue").value(900.00));
+
+        Simulation reloadedSimulation = simulationRepository.findById(simulation.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("123.45").compareTo(reloadedSimulation.getTotalAssetValue()));
+
+        Position reloadedPosition = positionRepository.findById(position.getId()).orElseThrow();
+        assertEquals(0, new BigDecimal("0.42").compareTo(reloadedPosition.getWeight()));
     }
 
     // --- rename ---------------------------------------------------------------------------

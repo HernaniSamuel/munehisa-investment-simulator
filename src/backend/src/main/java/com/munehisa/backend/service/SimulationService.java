@@ -20,7 +20,9 @@ import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.ExchangeRateLookupResultDTO;
 import com.munehisa.backend.dto.InflationDeflationResultDTO;
 import com.munehisa.backend.dto.PositionResponseDTO;
+import com.munehisa.backend.dto.PositionWithValuationDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
+import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
@@ -49,6 +51,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -106,6 +109,98 @@ public class SimulationService {
                 lookup.ticker(), lookup.name(), lookup.baseCurrency(),
                 lookup.requestedMonth(), lookup.returnedMonth(), lookup.truncated(),
                 lookup.series(), cashBalance);
+    }
+
+    // Read-only: never saves a Position or Simulation, so weight/totalAssetValue on those rows
+    // are left exactly as the last mutating call (buy/sell/advanceMonth) computed them - only
+    // this method's own DTO carries live-recomputed values. Not @Transactional for the same
+    // reason get()/searchAsset() aren't: it performs no writes of its own to make atomic, even
+    // though the cache services it calls may write cache rows internally.
+    public SimulationPositionsResponseDTO listPositions(UUID id, User user) {
+        Simulation simulation = findOwned(id, user);
+        List<Position> positions = positionRepository.findBySimulationId(simulation.getId());
+
+        // Snapshots are matched by ticker, the same join key toSnapshotPosition()/
+        // resetToSnapshot() already use, since SnapshotPosition has no assetId FK. A simulation
+        // that was never snapshotted (or a position bought entirely after the last snapshot)
+        // both naturally yield no match here - there is no separate "not found" branch needed
+        // below, snapshotQty/snapshotCostBasis just default to zero.
+        Map<String, SnapshotPosition> snapshotByTicker = snapshotRepository.findBySimulationId(simulation.getId())
+                .map(snapshot -> snapshotPositionRepository.findBySnapshotId(snapshot.getId()))
+                .orElseGet(List::of)
+                .stream()
+                .collect(Collectors.toMap(SnapshotPosition::getTicker, snapshotPosition -> snapshotPosition));
+
+        List<AssetCatalog> assets = new ArrayList<>();
+        List<BigDecimal> pricesInBase = new ArrayList<>();
+        List<Boolean> truncatedFlags = new ArrayList<>();
+        List<BigDecimal> marketValues = new ArrayList<>();
+        List<BigDecimal> baselineCostBases = new ArrayList<>();
+        List<BigDecimal> gainAmounts = new ArrayList<>();
+        BigDecimal totalAssetValue = BigDecimal.ZERO;
+        BigDecimal totalGainAmount = BigDecimal.ZERO;
+        BigDecimal totalBaselineCostBasis = BigDecimal.ZERO;
+
+        for (Position position : positions) {
+            AssetCatalog asset = assetCatalogRepository.findById(position.getAssetId())
+                    .orElseThrow(() -> new IllegalStateException("No asset catalog entry for asset id " + position.getAssetId()));
+            AssetLookupResultDTO lookup = assetCacheService.getAssetSeries(asset.getTicker(), simulation.getCurrentMonth());
+            ExchangeRateLookupResultDTO rate = exchangeRateCacheService.getExchangeRate(
+                    asset.getBaseCurrency(), simulation.getBaseCurrency(), simulation.getCurrentMonth());
+            BigDecimal priceInBase = currentClose(lookup).multiply(rate.close(), MATH_CONTEXT);
+            BigDecimal marketValue = priceInBase.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
+
+            // Same average-cost-baseline convention as sell()'s costBasisRemoved: the baseline
+            // cost basis is the snapshot's cost basis scaled down to whichever is smaller of the
+            // live or snapshot quantity, so a same-month partial sell (live < snapshot) shrinks
+            // the baseline proportionally, and a same-month additional buy (live > snapshot)
+            // leaves it untouched at the snapshot quantity rather than being diluted upward.
+            SnapshotPosition snapshotPosition = snapshotByTicker.get(asset.getTicker());
+            long snapshotQty = snapshotPosition == null ? 0L : snapshotPosition.getQuantity();
+            BigDecimal snapshotCostBasis = snapshotPosition == null ? BigDecimal.ZERO : snapshotPosition.getCostBasis();
+            long baselineQty = Math.min(position.getQuantity(), snapshotQty);
+            BigDecimal baselineCostBasis = snapshotQty > 0
+                    ? snapshotCostBasis.multiply(BigDecimal.valueOf(baselineQty), MATH_CONTEXT)
+                            .divide(BigDecimal.valueOf(snapshotQty), MATH_CONTEXT)
+                    : BigDecimal.ZERO;
+            BigDecimal gainAmount = priceInBase.multiply(BigDecimal.valueOf(baselineQty), MATH_CONTEXT)
+                    .subtract(baselineCostBasis);
+
+            assets.add(asset);
+            pricesInBase.add(priceInBase);
+            truncatedFlags.add(lookup.truncated());
+            marketValues.add(marketValue);
+            baselineCostBases.add(baselineCostBasis);
+            gainAmounts.add(gainAmount);
+
+            totalAssetValue = totalAssetValue.add(marketValue);
+            totalGainAmount = totalGainAmount.add(gainAmount);
+            totalBaselineCostBasis = totalBaselineCostBasis.add(baselineCostBasis);
+        }
+
+        // Weight (like recalculatePositionsAndTotalValue's) and gainPercent both need a
+        // completed total, so both wait for this second pass rather than being computed inline
+        // in the loop above.
+        List<PositionWithValuationDTO> results = new ArrayList<>();
+        for (int i = 0; i < positions.size(); i++) {
+            BigDecimal weight = totalAssetValue.signum() == 0
+                    ? BigDecimal.ZERO
+                    : marketValues.get(i).divide(totalAssetValue, MATH_CONTEXT);
+            BigDecimal gainPercent = baselineCostBases.get(i).signum() == 0
+                    ? BigDecimal.ZERO
+                    : gainAmounts.get(i).divide(baselineCostBases.get(i), MATH_CONTEXT);
+
+            results.add(new PositionWithValuationDTO(
+                    assets.get(i).getTicker(), assets.get(i).getName(), positions.get(i).getQuantity(),
+                    pricesInBase.get(i), truncatedFlags.get(i), marketValues.get(i), weight,
+                    positions.get(i).getCostBasis(), gainAmounts.get(i), gainPercent));
+        }
+
+        BigDecimal totalGainPercent = totalBaselineCostBasis.signum() == 0
+                ? BigDecimal.ZERO
+                : totalGainAmount.divide(totalBaselineCostBasis, MATH_CONTEXT);
+
+        return new SimulationPositionsResponseDTO(results, totalAssetValue, totalGainAmount, totalGainPercent);
     }
 
     public SimulationResponseDTO rename(UUID id, RenameSimulationRequestDTO request, User user) {
