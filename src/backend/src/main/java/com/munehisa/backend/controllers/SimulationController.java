@@ -7,6 +7,7 @@ import com.munehisa.backend.dto.CashMovementRequestDTO;
 import com.munehisa.backend.dto.CashMovementResponseDTO;
 import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
+import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
@@ -133,6 +134,22 @@ public class SimulationController {
             @PathVariable String ticker
     ) {
         return ResponseEntity.ok(simulationService.searchAsset(id, ticker, user));
+    }
+
+    @GetMapping("/{id}/positions")
+    @Operation(summary = "List a simulation's open positions with live valuation", description = "Returns the authenticated user's simulation's open positions enriched with live price, market value, weight, and price-driven gain/loss anchored to the simulation's last snapshot, plus simulation-level totals. Read-only: does not persist any of the live-computed values.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Positions returned"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<SimulationPositionsResponseDTO> listPositions(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id
+    ) {
+        return ResponseEntity.ok(simulationService.listPositions(id, user));
     }
 
     @PostMapping("/{id}/deposits")
