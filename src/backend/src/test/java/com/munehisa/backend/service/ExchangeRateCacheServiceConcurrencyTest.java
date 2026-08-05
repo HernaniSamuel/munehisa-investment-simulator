@@ -13,6 +13,8 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.YearMonth;
@@ -41,6 +43,13 @@ import static org.mockito.Mockito.when;
 @Import(ExchangeRateCacheService.class)
 @ActiveProfiles("test")
 @Tag("integration")
+// @DataJpaTest wraps each test method (and its @BeforeEach/@AfterEach) in one transaction
+// that rolls back by default. The worker threads below commit for real on their own
+// connections regardless, so relying on that rollback for @AfterEach cleanup would silently
+// no-op it and leak committed rows into the shared container for later tests. Disabling the
+// wrapper transaction makes every call - main thread and worker threads alike - commit
+// normally, so cleanup actually persists.
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 class ExchangeRateCacheServiceConcurrencyTest extends SharedPostgresContainer {
 
     private static final String BASE = "XCT";
