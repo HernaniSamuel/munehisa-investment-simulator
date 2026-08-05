@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
 from data_service.main import app
 from data_service.routes import assets as assets_route
-from data_service.schemas.asset import AssetResponse, MonthlyDataPoint
+from data_service.schemas.asset import (
+    AssetResponse,
+    AssetSearchResponse,
+    AssetSearchResult,
+    MonthlyDataPoint,
+)
 
 _SAMPLE_ASSET = AssetResponse(
     ticker="AAPL",
@@ -96,3 +101,115 @@ def test_get_asset_unexpected_error_returns_500_with_error_shape(auth_headers, m
         "status": "INTERNAL_SERVER_ERROR",
         "message": "Internal server error.",
     }
+
+
+_SAMPLE_SEARCH_RESPONSE = AssetSearchResponse(
+    query="petr",
+    results=[
+        AssetSearchResult(
+            ticker="PETR4.SA",
+            name="Petróleo Brasileiro S.A.",
+            exchange="SAO",
+            asset_type="EQUITY",
+        ),
+    ],
+)
+
+
+def test_search_assets_returns_200_with_results(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(assets_route, "search_assets", lambda q: _SAMPLE_SEARCH_RESPONSE)
+
+    response = client.get("/assets/search", params={"q": "petr"}, headers=auth_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query"] == "petr"
+    assert body["results"] == [
+        {
+            "ticker": "PETR4.SA",
+            "name": "Petróleo Brasileiro S.A.",
+            "exchange": "SAO",
+            "asset_type": "EQUITY",
+        }
+    ]
+
+
+def test_search_assets_no_matches_returns_empty_results(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        assets_route, "search_assets", lambda q: AssetSearchResponse(query=q, results=[])
+    )
+
+    response = client.get("/assets/search", params={"q": "zzzznomatch"}, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["results"] == []
+
+
+def test_search_assets_query_too_short_returns_422(client, auth_headers):
+    response = client.get("/assets/search", params={"q": "a"}, headers=auth_headers)
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == "UNPROCESSABLE_ENTITY"
+
+
+def test_search_assets_query_too_long_returns_422(client, auth_headers):
+    response = client.get("/assets/search", params={"q": "a" * 51}, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_search_assets_missing_query_returns_422(client, auth_headers):
+    response = client.get("/assets/search", headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_search_assets_without_api_key_returns_401(client):
+    response = client.get("/assets/search", params={"q": "petr"})
+
+    assert response.status_code == 401
+    assert response.json() == {"status": "UNAUTHORIZED", "message": "Invalid or missing API key."}
+
+
+def test_search_assets_with_wrong_api_key_returns_401(client):
+    response = client.get(
+        "/assets/search", params={"q": "petr"}, headers={"X-API-Key": "wrong-key"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_search_assets_upstream_error_returns_502(client, auth_headers, monkeypatch):
+    def _raise_upstream(q):
+        raise UpstreamFetchError("Yahoo search is unreachable")
+
+    monkeypatch.setattr(assets_route, "search_assets", _raise_upstream)
+
+    response = client.get("/assets/search", params={"q": "petr"}, headers=auth_headers)
+
+    assert response.status_code == 502
+    assert response.json()["status"] == "BAD_GATEWAY"
+
+
+def test_search_route_is_not_swallowed_by_ticker_route(client, auth_headers, monkeypatch):
+    # Regression test for FastAPI's declaration-order route matching: if "/assets/search"
+    # were ever declared after "/assets/{ticker}", this request would hit get_asset with
+    # ticker="search" instead.
+    search_calls = []
+
+    def _fake_search(q):
+        search_calls.append(q)
+        return AssetSearchResponse(query=q, results=[])
+
+    monkeypatch.setattr(assets_route, "search_assets", _fake_search)
+
+    def _fail_if_called(ticker):
+        raise AssertionError("get_asset should not be reached for /assets/search")
+
+    monkeypatch.setattr(assets_route, "fetch_asset", _fail_if_called)
+
+    response = client.get("/assets/search", params={"q": "petr"}, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert search_calls == ["petr"]

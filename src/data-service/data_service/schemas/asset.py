@@ -25,3 +25,19 @@ class AssetResponse(BaseModel):
     base_currency: str
     start_date: date
     monthly_data: list[MonthlyDataPoint]
+
+
+class AssetSearchResult(BaseModel):
+    """One match from a ticker/name search, in provider-agnostic terms."""
+
+    ticker: str
+    name: str
+    exchange: str | None = None
+    asset_type: str | None = None
+
+
+class AssetSearchResponse(BaseModel):
+    """Matches for a free-text ticker/name search, capped at 15 entries."""
+
+    query: str
+    results: list[AssetSearchResult]

@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
@@ -23,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Munehisa Investment Simulator - Data Service",
-    description="Fetches and normalizes third-party market data (no caching or business logic).",
+    description=(
+        "Fetches and normalizes third-party market data "
+        "(no persistence or business logic; a short in-memory search cache aside)."
+    ),
     version="0.1.0",
 )
 
@@ -45,6 +49,21 @@ def upstream_fetch_error_handler(request: Request, exc: UpstreamFetchError) -> J
     return JSONResponse(
         status_code=502,
         content=ErrorResponse(status="BAD_GATEWAY", message=str(exc)).model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    # FastAPI's built-in handler would answer {"detail": [...]}, the only response in this
+    # service not shaped {status, message}. /assets/search is the first route with
+    # constrained params, so this is the first request that can reach a 422 at all.
+    errors = exc.errors()
+    message = errors[0]["msg"] if errors else "Invalid request parameters."
+    return JSONResponse(
+        status_code=422,
+        content=ErrorResponse(status="UNPROCESSABLE_ENTITY", message=message).model_dump(),
     )
 
 
@@ -72,7 +91,12 @@ def unhandled_exception_handler(request: Request, exc: Exception) -> JSONRespons
     )
 
 
-_STATUS_NAMES = {401: "UNAUTHORIZED", 404: "NOT_FOUND", 502: "BAD_GATEWAY"}
+_STATUS_NAMES = {
+    401: "UNAUTHORIZED",
+    404: "NOT_FOUND",
+    422: "UNPROCESSABLE_ENTITY",
+    502: "BAD_GATEWAY",
+}
 
 
 def _status_name(status_code: int) -> str:
