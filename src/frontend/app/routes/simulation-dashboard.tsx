@@ -756,7 +756,7 @@ function CashMovementDialog({
               onChange={(e) => setTodaysMoney(e.target.checked)}
               disabled={submitting}
             />
-            Use today&apos;s money (adjust for inflation)
+            Remove cumulative inflation
           </label>
         </div>
 

@@ -536,7 +536,7 @@ describe("deposit and withdraw", () => {
     await user.click(screen.getByRole("button", { name: "+ Contribute" }));
     const dialog = screen.getByRole("dialog");
     await user.type(within(dialog).getByLabelText(/Amount/), "1000");
-    await user.click(within(dialog).getByLabelText(/today's money/i));
+    await user.click(within(dialog).getByLabelText(/cumulative inflation/i));
     await user.click(within(dialog).getByRole("button", { name: "Contribute" }));
 
     expect(simulationApi.deposit).toHaveBeenCalledWith(
