@@ -218,6 +218,62 @@ export type AdvanceMonthResponse = {
   positions: AdvanceMonthPosition[];
 };
 
+export type TickerSearchResult = {
+  ticker: string;
+  name: string;
+  exchange: string;
+  assetType: string;
+};
+
+export type AssetMonthData = {
+  referenceMonth: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  dividends: number;
+  splits: number;
+};
+
+export type ConvertedCashBalance = {
+  amount: number;
+  currency: string;
+  wasConverted: boolean;
+};
+
+export type AssetDetail = {
+  ticker: string;
+  name: string;
+  currency: string;
+  requestedMonth: string;
+  returnedMonth: string;
+  truncated: boolean;
+  series: AssetMonthData[];
+  cashBalance: ConvertedCashBalance;
+};
+
+export type TradePosition = {
+  ticker: string;
+  assetName: string;
+  quantity: number;
+  costBasis: number;
+  weight: number;
+  totalDividendsReceived: number;
+};
+
+export type TradeResponse = {
+  simulationId: string;
+  type: TransactionType;
+  // null when a sell empties the holding entirely - the backend deletes the
+  // position rather than returning a zero-quantity one (SimulationService.sell()).
+  position: TradePosition | null;
+  appliedAmount: number;
+  cashBalance: number;
+  totalAssetValue: number;
+  totalPatrimony: number;
+};
+
 export const simulationApi = {
   list: (token: string) => request<Simulation[]>("/simulations", { token }),
 
@@ -234,6 +290,21 @@ export const simulationApi = {
 
   positions: (id: string, token: string) =>
     request<PositionsResponse>(`/simulations/${id}/positions`, { token }),
+
+  searchAssets: (id: string, query: string, token: string) =>
+    request<TickerSearchResult[]>(
+      `/simulations/${id}/assets/search?query=${encodeURIComponent(query)}`,
+      { token }
+    ),
+
+  getAsset: (id: string, ticker: string, token: string) =>
+    request<AssetDetail>(`/simulations/${id}/assets/${encodeURIComponent(ticker)}`, { token }),
+
+  buy: (id: string, data: { ticker: string; quantity: number }, token: string) =>
+    request<TradeResponse>(`/simulations/${id}/buy`, { method: "POST", body: data, token }),
+
+  sell: (id: string, data: { ticker: string; quantity: number }, token: string) =>
+    request<TradeResponse>(`/simulations/${id}/sell`, { method: "POST", body: data, token }),
 
   transactions: (id: string, token: string) =>
     request<Transaction[]>(`/simulations/${id}/transactions`, { token }),
