@@ -10,7 +10,7 @@ export class ApiError extends Error {
 }
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   token?: string;
   // Most authenticated endpoints only ever return 401/403 for a
@@ -144,4 +144,27 @@ export const userApi = {
       token,
       skipUnauthorizedHandling: true,
     }),
+};
+
+export type Simulation = {
+  id: string;
+  name: string;
+  baseCurrency: "BRL" | "USD";
+  startMonth: string;
+  currentMonth: string;
+  cashBalance: number;
+  totalPatrimony: number;
+};
+
+export const simulationApi = {
+  list: (token: string) => request<Simulation[]>("/simulations", { token }),
+
+  create: (data: { name: string; baseCurrency: string; startMonth: string }, token: string) =>
+    request<Simulation>("/simulations", { method: "POST", body: data, token }),
+
+  rename: (id: string, name: string, token: string) =>
+    request<Simulation>(`/simulations/${id}`, { method: "PATCH", body: { name }, token }),
+
+  remove: (id: string, token: string) =>
+    request<void>(`/simulations/${id}`, { method: "DELETE", token }),
 };

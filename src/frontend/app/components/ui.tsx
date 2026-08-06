@@ -3,6 +3,7 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
 } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ink";
@@ -57,6 +58,36 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
   )
 );
 TextField.displayName = "TextField";
+
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  error?: string;
+};
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(
+  ({ label, id, error, className = "", children, ...props }, ref) => (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={id}
+        className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
+      >
+        {label}
+      </label>
+      <select
+        ref={ref}
+        id={id}
+        className={`border px-3 py-2.5 font-sans text-ink focus:outline-none ${
+          error ? "border-vermilion" : "border-ink/15 focus:border-vermilion"
+        } bg-paper ${className}`}
+        {...props}
+      >
+        {children}
+      </select>
+      {error && <p className="font-mono text-[11px] text-vermilion">{error}</p>}
+    </div>
+  )
+);
+Select.displayName = "Select";
 
 export function Banner({
   tone = "error",

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, authApi, setUnauthorizedHandler, userApi } from "./api";
+import { ApiError, authApi, setUnauthorizedHandler, simulationApi, userApi } from "./api";
 
 function mockFetchOnce(status: number, body?: unknown, contentType = "application/json") {
   const response = {
@@ -226,5 +226,86 @@ describe("api request/error parsing", () => {
     mockFetchOnce(401, { status: "UNAUTHORIZED", message: "Invalid Credentials" });
     await expect(userApi.deleteAccount("wrong", "my-jwt")).rejects.toBeInstanceOf(ApiError);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("sends a GET request with the token for simulationApi.list", async () => {
+    mockFetchOnce(200, []);
+    await simulationApi.list("my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("sends a POST request with the body and token for simulationApi.create", async () => {
+    mockFetchOnce(201, { id: "1", name: "Retirement plan" });
+    await simulationApi.create(
+      { name: "Retirement plan", baseCurrency: "BRL", startMonth: "2024-01" },
+      "my-jwt"
+    );
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      name: "Retirement plan",
+      baseCurrency: "BRL",
+      startMonth: "2024-01",
+    });
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with a 400 ApiError when simulationApi.create is given an invalid body", async () => {
+    mockFetchOnce(400, { status: "BAD_REQUEST", message: "baseCurrency: must be BRL or USD" });
+    await expect(
+      simulationApi.create({ name: "X", baseCurrency: "EUR", startMonth: "2024-01" }, "my-jwt")
+    ).rejects.toMatchObject({ status: 400, message: "baseCurrency: must be BRL or USD" });
+  });
+
+  it("sends a PATCH request with the name and token for simulationApi.rename", async () => {
+    mockFetchOnce(200, { id: "1", name: "New name" });
+    await simulationApi.rename("1", "New name", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1");
+    expect((init as RequestInit).method).toBe("PATCH");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ name: "New name" });
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with a 404 ApiError when simulationApi.rename targets a missing simulation", async () => {
+    mockFetchOnce(404, { status: "NOT_FOUND", message: "Simulation not found" });
+    await expect(simulationApi.rename("missing", "New name", "my-jwt")).rejects.toMatchObject({
+      status: 404,
+      message: "Simulation not found",
+    });
+  });
+
+  it("sends a DELETE request with the token for simulationApi.remove", async () => {
+    mockFetchOnce(204);
+    await simulationApi.remove("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1");
+    expect((init as RequestInit).method).toBe("DELETE");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("resolves to undefined on a 204 No Content for simulationApi.remove", async () => {
+    mockFetchOnce(204);
+    await expect(simulationApi.remove("1", "my-jwt")).resolves.toBeUndefined();
+  });
+
+  it("rejects with a 404 ApiError when simulationApi.remove targets a missing simulation", async () => {
+    mockFetchOnce(404, { status: "NOT_FOUND", message: "Simulation not found" });
+    await expect(simulationApi.remove("missing", "my-jwt")).rejects.toMatchObject({
+      status: 404,
+      message: "Simulation not found",
+    });
   });
 });
