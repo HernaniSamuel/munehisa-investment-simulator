@@ -1,17 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { formatCurrency, formatMonthYear } from "./format";
 
+// Intl.NumberFormat's currency separator is a non-breaking space character,
+// but exactly which one (U+00A0 vs the narrower U+202F) depends on the
+// ICU/CLDR data bundled with the Node version running the test - it has
+// changed between Node releases. Comparing on visible content only avoids
+// pinning the assertion to whichever invisible character happens to be
+// current on the machine that wrote the test.
+function normalizeSpaces(text: string): string {
+  return text.replace(/[  ]/g, " ");
+}
+
 describe("formatCurrency", () => {
   it("formats BRL with pt-BR grouping/decimal conventions", () => {
-    expect(formatCurrency(722000, "BRL")).toBe("R$ 722.000,00");
+    expect(normalizeSpaces(formatCurrency(722000, "BRL"))).toBe("R$ 722.000,00");
   });
 
   it("formats USD with en-US grouping/decimal conventions", () => {
-    expect(formatCurrency(722000, "USD")).toBe("$722,000.00");
+    expect(normalizeSpaces(formatCurrency(722000, "USD"))).toBe("$722,000.00");
   });
 
   it("formats zero", () => {
-    expect(formatCurrency(0, "USD")).toBe("$0.00");
+    expect(normalizeSpaces(formatCurrency(0, "USD"))).toBe("$0.00");
   });
 });
 
