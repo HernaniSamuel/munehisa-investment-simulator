@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@react-router/node": "8.0.0",
+    "d3": "^7.9.0",
     "isbot": "^5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -23,6 +24,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/d3": "^7.4.3",
     "@types/node": "^22",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
