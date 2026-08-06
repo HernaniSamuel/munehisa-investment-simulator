@@ -9,6 +9,7 @@ import com.munehisa.backend.dto.CreateSimulationRequestDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TickerSearchResultDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.dto.TransactionResponseDTO;
@@ -135,6 +136,25 @@ public class SimulationController {
             @PathVariable String ticker
     ) {
         return ResponseEntity.ok(simulationService.searchAsset(id, ticker, user));
+    }
+
+    @GetMapping("/{id}/assets/search")
+    @Operation(summary = "Search tradeable tickers by partial symbol or name", description = "Returns up to 15 tickers matching a partial symbol or company name, so the caller can pick one to look up with GET /simulations/{id}/assets/{ticker}. Requires ownership of the simulation, though the search results themselves are not simulation-specific.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Matches returned (an empty list when nothing matches)"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid token",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "No simulation with this id owned by the caller",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "503", description = "data-service unreachable or failing, including a query rejected as too short/too long",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<List<TickerSearchResultDTO>> searchTickers(
+            @AuthenticationPrincipal User user,
+            @PathVariable UUID id,
+            @RequestParam String query
+    ) {
+        return ResponseEntity.ok(simulationService.searchTickers(id, query, user));
     }
 
     @GetMapping("/{id}/positions")

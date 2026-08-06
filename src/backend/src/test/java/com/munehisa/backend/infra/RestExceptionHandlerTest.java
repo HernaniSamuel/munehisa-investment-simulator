@@ -8,6 +8,7 @@ import com.munehisa.backend.domain.inflation.InflationCurrency;
 import com.munehisa.backend.exceptions.AssetUnavailableException;
 import com.munehisa.backend.exceptions.ExchangeRateUnavailableException;
 import com.munehisa.backend.exceptions.InflationUnavailableException;
+import com.munehisa.backend.exceptions.TickerSearchUnavailableException;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -105,6 +106,16 @@ class RestExceptionHandlerTest {
     }
 
     @Test
+    void tickerSearchUnavailableHandler_returns503WithOriginalMessageUnchanged() {
+        TickerSearchUnavailableException exception = new TickerSearchUnavailableException(null);
+
+        ResponseEntity<RestErrorMessage> response = handler.tickerSearchUnavailableHandler(exception);
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+        assertEquals(exception.getMessage(), response.getBody().getMessage());
+    }
+
+    @Test
     void unavailableHandlers_doNotLog() {
         Logger logger = (Logger) LoggerFactory.getLogger(RestExceptionHandler.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -115,6 +126,7 @@ class RestExceptionHandlerTest {
             handler.assetUnavailableHandler(new AssetUnavailableException("AAPL", null));
             handler.exchangeRateUnavailableHandler(new ExchangeRateUnavailableException("USD", "EUR", null));
             handler.inflationUnavailableHandler(new InflationUnavailableException(InflationCurrency.USD, null));
+            handler.tickerSearchUnavailableHandler(new TickerSearchUnavailableException(null));
 
             assertTrue(appender.list.isEmpty(), "the 503 unavailable handlers must not log - only the generic handler does");
         } finally {

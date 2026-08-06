@@ -1,8 +1,10 @@
 # Munehisa — Data Service
 
 Python/FastAPI microservice that fetches and normalizes third-party market data. This
-module only *fetches and transforms* - no caching, no persistence, no business logic.
-The Java backend ([`../backend`](../backend)) calls it synchronously over HTTP on a
+module only *fetches and transforms* - no persistence, no business logic, and no caching
+of market data. The one exception is a 5-minute in-memory cache on `/assets/search`,
+since debounced typing would otherwise mean one upstream Yahoo call per keystroke. The
+Java backend ([`../backend`](../backend)) calls this service synchronously over HTTP on a
 cache-miss and owns everything downstream of the raw data.
 
 ## Stack
@@ -81,6 +83,7 @@ shape so both services are consistent for any client.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
+| `GET` | `/assets/search?q=` | `X-API-Key` | Up to 15 tickers matching a partial symbol or company name, sourced from Yahoo Finance's public search endpoint; 5-minute in-memory cache |
 | `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance |
 | `GET` | `/exchange/{from_currency}/{to_currency}` | `X-API-Key` | Monthly OHLC exchange-rate history for a currency pair, sourced from Yahoo Finance |
 | `GET` | `/inflation/brl` | `X-API-Key` | Full monthly IPCA (Brazil's official inflation index) series, sourced from BCB's SGS series 433 |
@@ -91,6 +94,8 @@ shape so both services are consistent for any client.
   could be unknown)
 - Missing/invalid API key → `401`
 - Upstream/network failure or timeout → `502`
+- `/assets/search`: `q` shorter than 2 or longer than 50 characters → `422`; a query with
+  no matches returns `200` with an empty `results` list, not an error
 - `/exchange`: `from_currency == to_currency` returns a synthetic single-point series
   (`open = high = low = close = 1`, dated `1970-01-01` as a fixed sentinel) instead of
   querying yfinance at all
@@ -153,9 +158,9 @@ out:
   floor exactly, so there's nothing to hardcode here.
 - **No publication-schedule guessing.** MineInvest's `_get_adjusted_end_date` exists to
   work around MineInvest's own DB caching (guessing whether "no row for last month"
-  means "not published yet" or "cache is stale"). This service never caches, so the
-  live API's own response already reflects exactly what BCB has published - there's no
-  stale-cache problem to guess around.
+  means "not published yet" or "cache is stale"). This service never caches *market
+  data*, so the live API's own response already reflects exactly what BCB has
+  published - there's no stale-cache problem to guess around.
 
 The accumulated-inflation-between-two-dates compounding in MineInvest's
 `BCBInflationAPI.get_accumulated_inflation` is business logic and stays in Java; this
@@ -180,7 +185,8 @@ to `UpstreamFetchError` → `502`. Two things carried over or confirmed unnecess
 - **No publication-schedule guessing**, same conclusion as the BRL endpoint and
   independently reconfirmed here: as of the time this was written, the live CSV's last
   row is the current month with a real value, nothing beyond it. This service never
-  caches, so there's no stale-vs-not-yet-published ambiguity to guess around.
+  caches *market data*, so there's no stale-vs-not-yet-published ambiguity to guess
+  around.
 
 One real finding changed the shape of this endpoint: the series has a genuine gap in the
 *middle*, not just potential incompleteness at the tail - October 2025 is present as a

@@ -1,8 +1,10 @@
 package com.munehisa.backend.service;
 
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
+import com.munehisa.backend.dto.dataservice.RawTickerSearchResult;
 import com.munehisa.backend.exceptions.AssetDataServiceException;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
+import com.munehisa.backend.exceptions.TickerSearchUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -12,10 +14,12 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadGateway;
@@ -92,5 +96,69 @@ class DataServiceAssetClientTest {
                 .andRespond(withUnauthorizedRequest());
 
         assertThrows(AssetDataServiceException.class, () -> client.fetchSeries("AAPL"));
+    }
+
+    @Test
+    void searchTickers_sendsApiKeyHeaderAndQueryParamAndParsesResults() {
+        mockServer.expect(requestTo(BASE_URL + "/assets/search?q=petr"))
+                .andExpect(header("X-API-Key", API_KEY))
+                .andRespond(withSuccess("""
+                        {
+                          "query": "petr",
+                          "results": [
+                            {"ticker": "PETR4.SA", "name": "Petrobras", "exchange": "SAO", "assetType": "EQUITY"}
+                          ]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RawTickerSearchResult> results = client.searchTickers("petr");
+
+        assertEquals(1, results.size());
+        RawTickerSearchResult result = results.get(0);
+        assertEquals("PETR4.SA", result.ticker());
+        assertEquals("Petrobras", result.name());
+        assertEquals("SAO", result.exchange());
+        assertEquals("EQUITY", result.assetType());
+        mockServer.verify();
+    }
+
+    @Test
+    void searchTickers_noMatches_returnsEmptyList() {
+        mockServer.expect(requestTo(BASE_URL + "/assets/search?q=zzz"))
+                .andRespond(withSuccess("""
+                        {"query": "zzz", "results": []}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<RawTickerSearchResult> results = client.searchTickers("zzz");
+
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    void searchTickers_encodesQueryWithSpaces() {
+        mockServer.expect(requestTo(BASE_URL + "/assets/search?q=petro%20bras"))
+                .andRespond(withSuccess("""
+                        {"query": "petro bras", "results": []}
+                        """, MediaType.APPLICATION_JSON));
+
+        client.searchTickers("petro bras");
+
+        mockServer.verify();
+    }
+
+    @Test
+    void searchTickers_upstream502_throwsTickerSearchUnavailableException() {
+        mockServer.expect(requestTo(BASE_URL + "/assets/search?q=petr"))
+                .andRespond(withBadGateway());
+
+        assertThrows(TickerSearchUnavailableException.class, () -> client.searchTickers("petr"));
+    }
+
+    @Test
+    void searchTickers_upstream401_throwsTickerSearchUnavailableException() {
+        mockServer.expect(requestTo(BASE_URL + "/assets/search?q=petr"))
+                .andRespond(withUnauthorizedRequest());
+
+        assertThrows(TickerSearchUnavailableException.class, () -> client.searchTickers("petr"));
     }
 }

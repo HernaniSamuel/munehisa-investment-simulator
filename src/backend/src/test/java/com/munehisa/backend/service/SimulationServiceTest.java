@@ -23,9 +23,11 @@ import com.munehisa.backend.dto.PositionWithValuationDTO;
 import com.munehisa.backend.dto.RenameSimulationRequestDTO;
 import com.munehisa.backend.dto.SimulationPositionsResponseDTO;
 import com.munehisa.backend.dto.SimulationResponseDTO;
+import com.munehisa.backend.dto.TickerSearchResultDTO;
 import com.munehisa.backend.dto.TradeRequestDTO;
 import com.munehisa.backend.dto.TradeResponseDTO;
 import com.munehisa.backend.dto.TransactionResponseDTO;
+import com.munehisa.backend.dto.dataservice.RawTickerSearchResult;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
 import com.munehisa.backend.exceptions.AssetPredatesStartDateException;
 import com.munehisa.backend.exceptions.FutureSimulationCurrentMonthException;
@@ -101,6 +103,9 @@ class SimulationServiceTest {
     @Mock
     private ExchangeRateCacheService exchangeRateCacheService;
 
+    @Mock
+    private DataServiceAssetClient dataServiceAssetClient;
+
     @BeforeEach
     void stubSnapshotWriteDefaults() {
         // advanceMonth now ends every successful run with a snapshot write (issue #59); most
@@ -122,7 +127,7 @@ class SimulationServiceTest {
     private SimulationService buildService(Clock clock) {
         return new SimulationService(simulationRepository, transactionRepository, inflationDeflationService, clock,
                 snapshotRepository, snapshotPositionRepository, positionRepository, assetCatalogRepository, assetCacheService,
-                exchangeRateCacheService);
+                exchangeRateCacheService, dataServiceAssetClient);
     }
 
     private static Clock fixedClockOn(LocalDate date) {
@@ -308,6 +313,51 @@ class SimulationServiceTest {
                 buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).searchAsset(id, "AAPL", user));
 
         verifyNoInteractions(assetCacheService, exchangeRateCacheService);
+    }
+
+    // --- searchTickers ----------------------------------------------------------------------
+
+    @Test
+    void searchTickers_ownedSimulation_mapsClientResultsToDTOs() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(dataServiceAssetClient.searchTickers("petr")).thenReturn(
+                List.of(new RawTickerSearchResult("PETR4.SA", "Petrobras", "SAO", "EQUITY")));
+
+        List<TickerSearchResultDTO> response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .searchTickers(simulation.getId(), "petr", user);
+
+        assertEquals(1, response.size());
+        assertEquals("PETR4.SA", response.get(0).ticker());
+        assertEquals("Petrobras", response.get(0).name());
+        assertEquals("SAO", response.get(0).exchange());
+        assertEquals("EQUITY", response.get(0).assetType());
+    }
+
+    @Test
+    void searchTickers_noMatches_returnsEmptyList() {
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(dataServiceAssetClient.searchTickers("zzz")).thenReturn(List.of());
+
+        List<TickerSearchResultDTO> response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .searchTickers(simulation.getId(), "zzz", user);
+
+        assertTrue(response.isEmpty());
+    }
+
+    @Test
+    void searchTickers_notOwnedOrMissingSimulation_throwsSimulationNotFoundExceptionAndNeverCallsDataService() {
+        User user = user();
+        UUID id = UUID.randomUUID();
+        when(simulationRepository.findByIdAndUserId(id, user.getId())).thenReturn(Optional.empty());
+
+        assertThrows(SimulationNotFoundException.class, () ->
+                buildService(fixedClockOn(LocalDate.of(2024, 7, 15))).searchTickers(id, "petr", user));
+
+        verifyNoInteractions(dataServiceAssetClient);
     }
 
     private ExchangeRateLookupResultDTO exchangeRate(String from, String to, YearMonth month, BigDecimal rate) {

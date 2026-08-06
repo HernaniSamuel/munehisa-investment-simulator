@@ -3,8 +3,11 @@ package com.munehisa.backend.service;
 import com.munehisa.backend.dto.dataservice.AssetSeriesResponse;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
+import com.munehisa.backend.dto.dataservice.RawTickerSearchResult;
+import com.munehisa.backend.dto.dataservice.TickerSearchResponse;
 import com.munehisa.backend.exceptions.AssetDataServiceException;
 import com.munehisa.backend.exceptions.AssetNotFoundException;
+import com.munehisa.backend.exceptions.TickerSearchUnavailableException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -13,6 +16,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.time.YearMonth;
+import java.util.List;
 
 @Component
 public class DataServiceAssetClient {
@@ -62,6 +66,28 @@ public class DataServiceAssetClient {
             throw new AssetNotFoundException(ticker, exception);
         } catch (RestClientException exception) {
             throw new AssetDataServiceException(ticker, exception);
+        }
+    }
+
+    /**
+     * Searches data-service for tickers matching a partial symbol or company name. Unlike
+     * {@link #fetchSeries}, there is no not-found case - nothing matching is an empty list,
+     * not a 404 - and no cache layer downstream of this call to distinguish "unavailable"
+     * from "serve what we already have", so any transport failure is terminal here.
+     */
+    public List<RawTickerSearchResult> searchTickers(String query) {
+        try {
+            TickerSearchResponse response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder.path("/assets/search").queryParam("q", query).build())
+                    .retrieve()
+                    .body(TickerSearchResponse.class);
+
+            return response.results().stream()
+                    .map(match -> new RawTickerSearchResult(
+                            match.ticker(), match.name(), match.exchange(), match.assetType()))
+                    .toList();
+        } catch (RestClientException exception) {
+            throw new TickerSearchUnavailableException(exception);
         }
     }
 }
