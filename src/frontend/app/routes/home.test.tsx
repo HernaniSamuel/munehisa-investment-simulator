@@ -378,12 +378,12 @@ describe("delete", () => {
 });
 
 describe("create", () => {
-  it("opens the create form from the empty-state CTA and creates a simulation on success", async () => {
+  it("opens the create form from the empty-state CTA and navigates to the new simulation's dashboard on success", async () => {
     vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
     const newSim: Simulation = { ...sim1, id: "33333333-3333-3333-3333-333333333333", name: "Fresh start" };
     vi.mocked(simulationApi.create).mockResolvedValueOnce(newSim);
     const user = userEvent.setup();
-    renderHome();
+    renderHome([simulationStub]);
     await screen.findByText(/Welcome,/);
 
     await user.click(screen.getByRole("button", { name: "New Simulation" }));
@@ -393,8 +393,7 @@ describe("create", () => {
     fireEvent.change(within(dialog).getByLabelText("Start month"), { target: { value: "2024-01" } });
     await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByText("Fresh start")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByText(`Simulation dashboard for ${newSim.id}`)).toBeInTheDocument();
     expect(simulationApi.create).toHaveBeenCalledWith(
       { name: "Fresh start", baseCurrency: "BRL", startMonth: "2024-01" },
       seededUser.token

@@ -69,8 +69,8 @@ function SimulationListScreen() {
   }
 
   function handleCreated(simulation: Simulation) {
-    setSimulations((prev) => (prev ? [...prev, simulation] : [simulation]));
     setCreateModalOpen(false);
+    navigate(`/simulations/${simulation.id}`);
   }
 
   function handleRenamed(updated: Simulation) {

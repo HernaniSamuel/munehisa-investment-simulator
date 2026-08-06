@@ -156,15 +156,105 @@ export type Simulation = {
   totalPatrimony: number;
 };
 
+export type Position = {
+  ticker: string;
+  assetName: string;
+  quantity: number;
+  currentPrice: number;
+  wasTruncated: boolean;
+  marketValue: number;
+  weight: number;
+  costBasis: number;
+  gainAmount: number;
+  gainPercent: number;
+};
+
+export type PositionsResponse = {
+  positions: Position[];
+  totalAssetValue: number;
+  totalGainAmount: number;
+  totalGainPercent: number;
+};
+
+export type TransactionType = "BUY" | "SELL" | "DEPOSIT" | "WITHDRAWAL" | "DIVIDEND";
+
+export type Transaction = {
+  type: TransactionType;
+  month: string;
+  amount: number;
+  ticker: string | null;
+  assetName: string | null;
+  quantity: number | null;
+};
+
+export type CashMovementResponse = {
+  simulationId: string;
+  appliedAmount: number;
+  cashBalance: number;
+  totalPatrimony: number;
+  // Not rendered by the dashboard - only appliedAmount/cashBalance/totalPatrimony
+  // are used, so the nested inflation/deflation lookup shape is left untyped.
+  deflation: unknown | null;
+};
+
+export type AdvanceMonthPosition = {
+  ticker: string;
+  assetName: string;
+  quantity: number;
+  price: number;
+  wasTruncated: boolean;
+  dividendReceived: number;
+  weight: number;
+  costBasis: number;
+  totalDividendsReceived: number;
+};
+
+export type AdvanceMonthResponse = {
+  simulationId: string;
+  currentMonth: string;
+  cashBalance: number;
+  totalAssetValue: number;
+  totalPatrimony: number;
+  positions: AdvanceMonthPosition[];
+};
+
 export const simulationApi = {
   list: (token: string) => request<Simulation[]>("/simulations", { token }),
 
   create: (data: { name: string; baseCurrency: string; startMonth: string }, token: string) =>
     request<Simulation>("/simulations", { method: "POST", body: data, token }),
 
+  get: (id: string, token: string) => request<Simulation>(`/simulations/${id}`, { token }),
+
   rename: (id: string, name: string, token: string) =>
     request<Simulation>(`/simulations/${id}`, { method: "PATCH", body: { name }, token }),
 
   remove: (id: string, token: string) =>
     request<void>(`/simulations/${id}`, { method: "DELETE", token }),
+
+  positions: (id: string, token: string) =>
+    request<PositionsResponse>(`/simulations/${id}/positions`, { token }),
+
+  transactions: (id: string, token: string) =>
+    request<Transaction[]>(`/simulations/${id}/transactions`, { token }),
+
+  deposit: (id: string, data: { amount: number; todaysMoney: boolean }, token: string) =>
+    request<CashMovementResponse>(`/simulations/${id}/deposits`, {
+      method: "POST",
+      body: data,
+      token,
+    }),
+
+  withdraw: (id: string, data: { amount: number; todaysMoney: boolean }, token: string) =>
+    request<CashMovementResponse>(`/simulations/${id}/withdrawals`, {
+      method: "POST",
+      body: data,
+      token,
+    }),
+
+  reset: (id: string, token: string) =>
+    request<Simulation>(`/simulations/${id}/reset`, { method: "POST", token }),
+
+  advance: (id: string, token: string) =>
+    request<AdvanceMonthResponse>(`/simulations/${id}/advance`, { method: "POST", token }),
 };

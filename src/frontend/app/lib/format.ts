@@ -10,6 +10,13 @@ export function formatCurrency(amount: number, baseCurrency: "BRL" | "USD"): str
   }).format(amount);
 }
 
+// fraction is a plain ratio (0.05 = 5%), matching the backend's weight/
+// gainPercent convention - never pre-multiplied by 100.
+export function formatPercent(fraction: number): string {
+  const sign = fraction >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(fraction * 100).toFixed(2)}%`;
+}
+
 // yearMonth is a "YYYY-MM" string (the JSON shape of the backend's
 // YearMonth). Parsed as UTC so a local timezone west of UTC can't shift the
 // 1st of the month back into the previous month.

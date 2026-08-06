@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrency, formatMonthYear } from "./format";
+import { formatCurrency, formatMonthYear, formatPercent } from "./format";
 
 // Intl.NumberFormat's currency separator is a non-breaking space character,
 // but exactly which one (U+00A0 vs the narrower U+202F) depends on the
@@ -36,5 +36,23 @@ describe("formatMonthYear", () => {
 
   it("uppercases the abbreviated month", () => {
     expect(formatMonthYear("2024-06")).toBe("JUN 2024");
+  });
+});
+
+describe("formatPercent", () => {
+  it("formats a positive fraction with a leading plus sign", () => {
+    expect(formatPercent(0.05)).toBe("+5.00%");
+  });
+
+  it("formats a negative fraction with a minus sign and no double negative", () => {
+    expect(formatPercent(-0.05)).toBe("−5.00%");
+  });
+
+  it("formats zero with a leading plus sign", () => {
+    expect(formatPercent(0)).toBe("+0.00%");
+  });
+
+  it("rounds to two decimal places", () => {
+    expect(formatPercent(0.11111)).toBe("+11.11%");
   });
 });
