@@ -72,21 +72,29 @@ export function renderWithProviders(
   ui: ReactElement,
   {
     route = "/",
+    path,
     redirectStubs = [],
   }: {
     route?: string | { pathname: string; state?: unknown };
+    // The Route pattern to mount `ui` under (e.g. "/simulations/:id"),
+    // distinct from `route` (the actual URL navigated to, e.g.
+    // "/simulations/abc-123"). Needed whenever the component under test
+    // reads a dynamic segment via useParams() - without a pattern here, an
+    // exact-match Route on the literal URL captures no params. Defaults to
+    // the same literal-match behavior every existing call site relies on.
+    path?: string;
     redirectStubs?: { path: string; element: ReactElement }[];
   } = {}
 ) {
   // <Route path> matches on pathname only - strip a query string/hash from a
   // string route (e.g. "/reset-password?token=...") so it doesn't end up
   // literally in the match pattern.
-  const routePath = typeof route === "string" ? route.split(/[?#]/)[0] : route.pathname;
+  const routePath = path ?? (typeof route === "string" ? route.split(/[?#]/)[0] : route.pathname);
 
   return render(
     <MemoryRouter initialEntries={[route]}>
       <AuthProvider>
-        {redirectStubs.length > 0 ? (
+        {redirectStubs.length > 0 || path !== undefined ? (
           <Routes>
             <Route path={routePath} element={ui} />
             {redirectStubs.map((stub) => (

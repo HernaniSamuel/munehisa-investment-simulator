@@ -308,4 +308,125 @@ describe("api request/error parsing", () => {
       message: "Simulation not found",
     });
   });
+
+  it("sends a GET request with the token for simulationApi.get", async () => {
+    mockFetchOnce(200, { id: "1", name: "Retirement plan" });
+    await simulationApi.get("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with a 404 ApiError when simulationApi.get targets a missing simulation", async () => {
+    mockFetchOnce(404, { status: "NOT_FOUND", message: "Simulation not found" });
+    await expect(simulationApi.get("missing", "my-jwt")).rejects.toMatchObject({
+      status: 404,
+      message: "Simulation not found",
+    });
+  });
+
+  it("sends a GET request with the token for simulationApi.positions", async () => {
+    mockFetchOnce(200, { positions: [], totalAssetValue: 0, totalGainAmount: 0, totalGainPercent: 0 });
+    await simulationApi.positions("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/positions");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("sends a GET request with the token for simulationApi.transactions", async () => {
+    mockFetchOnce(200, []);
+    await simulationApi.transactions("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/transactions");
+    expect((init as RequestInit).method ?? "GET").toBe("GET");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("sends a POST request with amount/todaysMoney and the token for simulationApi.deposit", async () => {
+    mockFetchOnce(200, { simulationId: "1", appliedAmount: 100, cashBalance: 100, totalPatrimony: 100, deflation: null });
+    await simulationApi.deposit("1", { amount: 100, todaysMoney: true }, "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/deposits");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ amount: 100, todaysMoney: true });
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with a 400 ApiError when simulationApi.deposit is given an invalid amount", async () => {
+    mockFetchOnce(400, { status: "BAD_REQUEST", message: "amount: must be greater than 0" });
+    await expect(
+      simulationApi.deposit("1", { amount: -1, todaysMoney: false }, "my-jwt")
+    ).rejects.toMatchObject({ status: 400, message: "amount: must be greater than 0" });
+  });
+
+  it("sends a POST request with amount/todaysMoney and the token for simulationApi.withdraw", async () => {
+    mockFetchOnce(200, { simulationId: "1", appliedAmount: 50, cashBalance: 50, totalPatrimony: 50, deflation: null });
+    await simulationApi.withdraw("1", { amount: 50, todaysMoney: false }, "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/withdrawals");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ amount: 50, todaysMoney: false });
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with a 400 ApiError when simulationApi.withdraw exceeds the cash balance", async () => {
+    mockFetchOnce(400, { status: "BAD_REQUEST", message: "Insufficient cash balance" });
+    await expect(
+      simulationApi.withdraw("1", { amount: 999999, todaysMoney: false }, "my-jwt")
+    ).rejects.toMatchObject({ status: 400, message: "Insufficient cash balance" });
+  });
+
+  it("sends a POST request with the token and no body for simulationApi.reset", async () => {
+    mockFetchOnce(200, { id: "1", currentMonth: "2020-02" });
+    await simulationApi.reset("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/reset");
+    expect((init as RequestInit).method).toBe("POST");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with an ApiError when simulationApi.reset has no snapshot to revert to", async () => {
+    mockFetchOnce(404, { status: "NOT_FOUND", message: "No snapshot found" });
+    await expect(simulationApi.reset("1", "my-jwt")).rejects.toMatchObject({
+      status: 404,
+      message: "No snapshot found",
+    });
+  });
+
+  it("sends a POST request with the token and no body for simulationApi.advance", async () => {
+    mockFetchOnce(200, {
+      simulationId: "1",
+      currentMonth: "2020-02",
+      cashBalance: 100,
+      totalAssetValue: 200,
+      totalPatrimony: 300,
+      positions: [],
+    });
+    await simulationApi.advance("1", "my-jwt");
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("/simulations/1/advance");
+    expect((init as RequestInit).method).toBe("POST");
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(
+      "Bearer my-jwt"
+    );
+  });
+
+  it("rejects with an ApiError when simulationApi.advance fails", async () => {
+    mockFetchOnce(500, undefined, "text/plain");
+    await expect(simulationApi.advance("1", "my-jwt")).rejects.toMatchObject({ status: 500 });
+  });
 });
