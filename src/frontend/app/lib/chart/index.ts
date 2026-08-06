@@ -1,6 +1,6 @@
 export { FinancialChart, type FinancialChartProps } from "./FinancialChart";
 export { sumiTheme, zankyoTheme, type ChartTheme } from "./theme";
-export type { Bar } from "./types";
+export type { Bar, ChartScale } from "./types";
 
 export {
   createChartTypeRegistry,
