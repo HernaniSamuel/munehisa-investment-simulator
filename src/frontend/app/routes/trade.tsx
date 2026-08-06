@@ -79,6 +79,10 @@ function TradeScreen() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<TickerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  // True right after a result is picked, so the (now-empty) results list
+  // reads as "closed" rather than as a "No matches" for a query that
+  // actually had matches. Cleared as soon as a new search actually runs.
+  const [resultsDismissed, setResultsDismissed] = useState(false);
   const searchRequestIdRef = useRef(0);
 
   const [selectedAsset, setSelectedAsset] = useState<AssetDetail | null>(null);
@@ -104,12 +108,21 @@ function TradeScreen() {
 
   async function loadAsset(ticker: string) {
     if (!user || !id) return;
+    // Closes the suggestion list the moment a result is clicked, regardless
+    // of whether the lookup that follows succeeds - the query text itself is
+    // left alone so the box still reads "what I searched for".
+    setSearchResults([]);
+    setSearching(false);
+    setResultsDismissed(true);
     setAssetLoading(true);
     try {
       const asset = await simulationApi.getAsset(id, ticker, user.token);
       setSelectedAsset(asset);
       setMode("buy");
       setQuantity("");
+      if (asset.cashBalance.wasConverted) {
+        addToast(`Cash balance converted to ${asset.cashBalance.currency} for this trade.`);
+      }
     } catch (err) {
       setSelectedAsset(null);
       addToast(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
@@ -148,6 +161,7 @@ function TradeScreen() {
     if (!user || !id) return;
 
     setSearching(true);
+    setResultsDismissed(false);
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(() => {
       simulationApi
@@ -290,9 +304,9 @@ function TradeScreen() {
       : "ready";
 
   return (
-    <main className="relative min-h-screen bg-paper px-4 py-10">
+    <main className="relative flex h-screen flex-col overflow-hidden bg-paper px-4 py-4">
       <div className="washi-texture" aria-hidden="true" />
-      <div className="relative mx-auto flex max-w-[1360px] flex-col gap-8">
+      <div className="relative flex flex-1 flex-col gap-4 overflow-hidden">
         {status === "loading" && <p className="font-mono text-sm text-muted">Loading simulation…</p>}
 
         {status === "error" && <Banner tone="error">{loadError}</Banner>}
@@ -301,22 +315,23 @@ function TradeScreen() {
           <>
             <TradeHeader simulationId={simulation.id} />
 
-            <div className="flex gap-4">
-              <div className="flex-1">
+            {/* Fixed-width sidebar (search, then the selected asset's info/holding/buy-sell form)
+                next to a chart panel that claims the rest of the screen - the chart is the
+                focal point here, not one card among equals. */}
+            <div className="flex flex-1 gap-4 overflow-hidden">
+              <div className="flex w-[380px] shrink-0 flex-col gap-4 overflow-y-auto">
                 <SearchPanel
                   query={query}
                   onQueryChange={setQuery}
                   results={searchResults}
                   searching={searching}
+                  resultsDismissed={resultsDismissed}
                   onSelect={loadAsset}
                 />
-              </div>
 
-              <div className="flex flex-[2] flex-col gap-4">
-                {selectedAsset ? (
+                {selectedAsset && (
                   <>
                     <AssetInfoCard asset={selectedAsset} holding={holding} baseCurrency={simulation.baseCurrency} />
-                    <TradeChartPanel bars={bars} />
                     <TradeForm
                       asset={selectedAsset}
                       mode={mode}
@@ -330,8 +345,16 @@ function TradeScreen() {
                       onSubmit={handleTradeSubmit}
                     />
                   </>
+                )}
+              </div>
+
+              <div className="flex flex-1 flex-col overflow-hidden">
+                {selectedAsset ? (
+                  <TradeChartPanel bars={bars} />
                 ) : assetLoading ? (
-                  <p className="font-mono text-sm text-muted">Loading asset…</p>
+                  <div className="flex flex-1 items-center justify-center border border-ink/10 bg-panel p-10">
+                    <p className="font-mono text-sm text-muted">Loading asset…</p>
+                  </div>
                 ) : (
                   <EmptySelectionState />
                 )}
@@ -362,12 +385,14 @@ function SearchPanel({
   onQueryChange,
   results,
   searching,
+  resultsDismissed,
   onSelect,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   results: TickerSearchResult[];
   searching: boolean;
+  resultsDismissed: boolean;
   onSelect: (ticker: string) => void;
 }) {
   const trimmed = query.trim();
@@ -386,7 +411,7 @@ function SearchPanel({
       </div>
       <div className="mt-4 flex flex-col gap-1.5" data-testid="search-results">
         {searching && <p className="font-mono text-xs text-muted">Searching…</p>}
-        {!searching && trimmed.length >= MIN_QUERY_LENGTH && results.length === 0 && (
+        {!searching && !resultsDismissed && trimmed.length >= MIN_QUERY_LENGTH && results.length === 0 && (
           <p className="font-mono text-xs text-muted">No matches.</p>
         )}
         {results.map((result) => (
@@ -475,9 +500,13 @@ function AssetInfoCard({
 
 function TradeChartPanel({ bars }: { bars: Bar[] }) {
   return (
-    <div className="border border-ink/10 bg-panel p-5">
+    <div className="flex flex-1 flex-col overflow-hidden border border-ink/10 bg-panel p-5">
       <h2 className="font-display text-lg font-bold text-ink">Chart</h2>
-      <div className="mt-3">
+      {/* min-h-0 lets this shrink below its content's natural height inside the
+          flex column, which is what lets FinancialChart's ResizeObserver-based
+          auto-sizing fill the actual remaining space instead of the panel
+          growing to fit an intrinsically-sized chart. */}
+      <div className="mt-3 min-h-0 flex-1">
         <FinancialChart bars={bars} chartType="candlestick" showVolume />
       </div>
     </div>

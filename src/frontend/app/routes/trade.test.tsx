@@ -246,6 +246,28 @@ describe("search", () => {
     expect(screen.getByRole("button", { name: "Buy shares" })).toBeInTheDocument();
   });
 
+  it("closes the suggestion list once a result is selected, keeping the typed query", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.searchAssets).mockResolvedValueOnce(searchResults);
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    renderTrade();
+    await screen.findByLabelText(/Ticker or name/i);
+
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText(/Ticker or name/i), { target: { value: "AAPL" } });
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    vi.useRealTimers();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /AAPL/ }));
+    await screen.findByRole("heading", { name: "Chart" });
+
+    const resultsContainer = screen.getByTestId("search-results");
+    expect(within(resultsContainer).queryAllByRole("button")).toHaveLength(0);
+    expect(within(resultsContainer).queryByText("No matches.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Ticker or name/i)).toHaveValue("AAPL");
+  });
+
   it("selecting a search result that 400s shows an error toast and selects nothing", async () => {
     mockLoadSuccess();
     vi.mocked(simulationApi.searchAssets).mockResolvedValueOnce(searchResults);
@@ -263,6 +285,28 @@ describe("search", () => {
 
     expect(await screen.findByText("Not available this month")).toBeInTheDocument();
     expect(screen.getByText("Search for an asset to begin trading.")).toBeInTheDocument();
+  });
+});
+
+describe("currency conversion toast", () => {
+  it("shows a toast when the selected asset's cash balance was converted to its own currency", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+
+    expect(await screen.findByText("Cash balance converted to USD for this trade.")).toBeInTheDocument();
+  });
+
+  it("does not show a conversion toast when the cash balance was not converted", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce({
+      ...assetDetail,
+      cashBalance: { ...assetDetail.cashBalance, wasConverted: false },
+    });
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+
+    await screen.findByRole("heading", { name: "Chart" });
+    expect(screen.queryByText(/converted to/)).not.toBeInTheDocument();
   });
 });
 
