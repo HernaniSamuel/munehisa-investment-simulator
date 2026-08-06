@@ -233,9 +233,17 @@ function TradeScreen() {
     }
   }
 
-  function handleTradeSuccess(response: TradeResponse, submittedQuantity: number, tradeMode: "buy" | "sell") {
-    const ticker = response.position.ticker;
-    const newQuantity = response.position.quantity;
+  function handleTradeSuccess(
+    response: TradeResponse,
+    submittedQuantity: number,
+    tradeMode: "buy" | "sell",
+    ticker: string
+  ) {
+    // A full sell empties the holding: the backend deletes the position and
+    // returns position: null rather than a zero-quantity one, so the ticker
+    // has to come from the caller (the asset that was actually traded), not
+    // from the response.
+    const newQuantity = response.position?.quantity ?? 0;
 
     // See the "post-trade figure refresh" judgment call: the trade response
     // carries no price/market-value/gain fields, so those are derived here
@@ -289,7 +297,7 @@ function TradeScreen() {
     try {
       const apiCall = mode === "buy" ? simulationApi.buy : simulationApi.sell;
       const response = await apiCall(id, { ticker: selectedAsset.ticker, quantity: parsedQuantity }, user.token);
-      handleTradeSuccess(response, parsedQuantity, mode);
+      handleTradeSuccess(response, parsedQuantity, mode, selectedAsset.ticker);
     } catch (err) {
       addToast(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {

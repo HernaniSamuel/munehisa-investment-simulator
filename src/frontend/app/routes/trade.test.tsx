@@ -479,17 +479,13 @@ describe("submitting a trade", () => {
   it("disables Sell and resets to Buy once a full sell zeroes the holding", async () => {
     mockLoadSuccess();
     vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    // A full sell empties the holding server-side, so the backend deletes
+    // the position and returns position: null - not a zero-quantity
+    // Position (see SimulationService.sell()).
     vi.mocked(simulationApi.sell).mockResolvedValueOnce({
       simulationId: sim.id,
       type: "SELL",
-      position: {
-        ticker: "AAPL",
-        assetName: "Apple Inc.",
-        quantity: 0,
-        costBasis: 0,
-        weight: 0,
-        totalDividendsReceived: 0,
-      },
+      position: null,
       appliedAmount: 7500,
       cashBalance: 57500,
       totalAssetValue: 0,
@@ -504,6 +500,7 @@ describe("submitting a trade", () => {
     await user.click(screen.getByRole("button", { name: "Sell shares" }));
 
     await screen.findByText(/Sold 10 shares of AAPL/);
+    expect(screen.getByTestId("holding-quantity")).toHaveTextContent("0");
     expect(screen.getByRole("button", { name: "Sell" })).toBeDisabled();
   });
 });

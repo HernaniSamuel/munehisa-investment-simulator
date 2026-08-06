@@ -265,7 +265,9 @@ export type TradePosition = {
 export type TradeResponse = {
   simulationId: string;
   type: TransactionType;
-  position: TradePosition;
+  // null when a sell empties the holding entirely - the backend deletes the
+  // position rather than returning a zero-quantity one (SimulationService.sell()).
+  position: TradePosition | null;
   appliedAmount: number;
   cashBalance: number;
   totalAssetValue: number;
