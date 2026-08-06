@@ -116,7 +116,7 @@ function SimulationListScreen() {
             <div>
               <h1 className="font-display text-xl font-bold text-ink">Munehisa</h1>
               <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted">
-                Investment cockpit
+                Investment simulator
               </p>
             </div>
           </div>
