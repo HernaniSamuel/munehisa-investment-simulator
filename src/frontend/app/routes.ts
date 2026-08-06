@@ -9,4 +9,5 @@ export default [
   route("reset-password", "routes/reset-password.tsx"),
   route("settings", "routes/settings.tsx"),
   route("simulations/:id", "routes/simulation-dashboard.tsx"),
+  route("simulations/:id/trade", "routes/trade.tsx"),
 ] satisfies RouteConfig;
