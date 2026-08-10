@@ -141,18 +141,59 @@ describe("FinancialChart", () => {
     expect(sumiBg?.getAttribute("fill")).not.toBe(zankyoBg?.getAttribute("fill"));
   });
 
-  it("shows a hover readout for the nearest bar and hides it when the pointer leaves", async () => {
+  it("shows a tooltip with the hovered candle's OHLCV near that candle, and hides it on pointer leave", async () => {
     const bars = makeBars(5);
     render(<FinancialChart bars={bars} width={400} height={300} />);
     const overlay = screen.getByTestId("chart-overlay");
 
-    expect(screen.queryByTestId("chart-crosshair")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
 
     fireEvent.pointerMove(overlay, { clientX: 2, clientY: 50 });
-    expect(await screen.findByTestId("chart-crosshair")).toHaveTextContent(/O 100\.00/);
+    const tooltip = await screen.findByTestId("chart-tooltip");
+    expect(tooltip).toHaveTextContent(/Jan 01, 2024/);
+    expect(tooltip).toHaveTextContent(/O 100\.00/);
+    expect(tooltip).toHaveTextContent(/H 105\.00/);
+    expect(tooltip).toHaveTextContent(/L 95\.00/);
+    expect(tooltip).toHaveTextContent(/C 102\.00/);
+    expect(tooltip).toHaveTextContent(/V 1,000/);
+    // positioned near the hovered candle, not pinned at the old fixed corner offset
+    expect(tooltip.getAttribute("transform")).not.toBe("translate(4, 12)");
 
     fireEvent.pointerLeave(overlay);
-    expect(screen.queryByTestId("chart-crosshair")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+  });
+
+  it("no longer renders the old fixed top-left OHLC text readout", async () => {
+    const bars = makeBars(5);
+    const { container } = render(<FinancialChart bars={bars} width={400} height={300} />);
+    const overlay = screen.getByTestId("chart-overlay");
+
+    fireEvent.pointerMove(overlay, { clientX: 2, clientY: 50 });
+    await screen.findByTestId("chart-tooltip");
+
+    expect(container.querySelector('text[x="4"][y="12"]')).not.toBeInTheDocument();
+    const crosshair = screen.getByTestId("chart-crosshair");
+    expect(crosshair.querySelectorAll("text")).toHaveLength(0);
+  });
+
+  it("keeps the tooltip within the chart bounds when hovering the first or last bar", async () => {
+    const bars = makeBars(5);
+    render(<FinancialChart bars={bars} width={400} height={300} />);
+    const overlay = screen.getByTestId("chart-overlay");
+    const innerWidth = 400 - 56 - 12; // size minus MARGIN.left + MARGIN.right
+    const innerHeight = 300 - 8 - 24; // size minus MARGIN.top + MARGIN.bottom
+
+    for (const clientX of [0, 398]) {
+      expect(() => fireEvent.pointerMove(overlay, { clientX, clientY: 50 })).not.toThrow();
+      const tooltip = await screen.findByTestId("chart-tooltip");
+      const match = /translate\(([-\d.]+), ([-\d.]+)\)/.exec(tooltip.getAttribute("transform") ?? "");
+      expect(match).not.toBeNull();
+      const [, x, y] = match!;
+      expect(Number(x)).toBeGreaterThanOrEqual(0);
+      expect(Number(x)).toBeLessThanOrEqual(innerWidth);
+      expect(Number(y)).toBeGreaterThanOrEqual(0);
+      expect(Number(y)).toBeLessThanOrEqual(innerHeight);
+    }
   });
 
   it("zooms and pans without throwing across dataset sizes from 1 to several hundred bars", () => {
