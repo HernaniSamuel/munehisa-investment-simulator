@@ -2,7 +2,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders, seedAuthenticatedUser } from "~/test/test-utils";
+import { renderWithProviders, seedAuthenticatedUser, seedTheme } from "~/test/test-utils";
 import {
   ApiError,
   simulationApi,
@@ -549,5 +549,34 @@ describe("chart", () => {
     renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
 
     expect(await screen.findByTestId("chart-type-candlestick")).toBeInTheDocument();
+  });
+
+  // A down bar (close < open) picks candleDown, the color zankyoTheme swaps
+  // relative to sumiTheme - candleUp (vermilion) is identical in both themes
+  // and wouldn't tell the two themes apart.
+  const downBarAssetDetail: AssetDetail = {
+    ...assetDetail,
+    series: [
+      { referenceMonth: "2020-01", open: 105, high: 110, low: 90, close: 95, volume: 1000, dividends: 0, splits: 0 },
+    ],
+  };
+
+  it("renders the down candle in the Sumi teal by default", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(downBarAssetDetail);
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+
+    const candle = await screen.findByTestId("candle");
+    expect(candle.querySelector("rect")).toHaveAttribute("fill", "#0C6156");
+  });
+
+  it("renders the down candle in the Zankyō phosphor cyan when Zankyō is selected", async () => {
+    seedTheme("zankyo");
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(downBarAssetDetail);
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+
+    const candle = await screen.findByTestId("candle");
+    expect(candle.querySelector("rect")).toHaveAttribute("fill", "#57E3D0");
   });
 });

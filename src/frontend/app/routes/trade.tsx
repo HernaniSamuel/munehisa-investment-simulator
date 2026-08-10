@@ -5,6 +5,7 @@ import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { useAuth } from "~/lib/auth-context";
+import { useTheme } from "~/lib/theme-context";
 import {
   ApiError,
   simulationApi,
@@ -15,7 +16,7 @@ import {
   type TradeResponse,
 } from "~/lib/api";
 import { formatCurrency, formatPercent } from "~/lib/format";
-import { FinancialChart, type Bar } from "~/lib/chart";
+import { FinancialChart, sumiTheme, zankyoTheme, type Bar } from "~/lib/chart";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Trade — Munehisa" }];
@@ -514,6 +515,8 @@ function AssetInfoCard({
 }
 
 function TradeChartPanel({ bars }: { bars: Bar[] }) {
+  const { theme } = useTheme();
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden border border-ink/10 bg-panel p-5">
       <h2 className="font-display text-lg font-bold text-ink">Chart</h2>
@@ -522,7 +525,12 @@ function TradeChartPanel({ bars }: { bars: Bar[] }) {
           auto-sizing fill the actual remaining space instead of the panel
           growing to fit an intrinsically-sized chart. */}
       <div className="mt-3 min-h-0 flex-1">
-        <FinancialChart bars={bars} chartType="candlestick" showVolume />
+        <FinancialChart
+          bars={bars}
+          chartType="candlestick"
+          showVolume
+          theme={theme === "zankyo" ? zankyoTheme : sumiTheme}
+        />
       </div>
     </div>
   );
