@@ -358,12 +358,14 @@ describe("positions table", () => {
     expect(tableScroll.getByText(money(position1.marketValue, sim.baseCurrency))).toBeInTheDocument();
   });
 
-  it("scrolls internally within a fixed-height container", async () => {
+  it("scrolls internally within a fixed-height container, in both directions", async () => {
     mockLoadSuccess();
     renderDashboard();
     await screen.findByText(sim.name);
 
-    expect(screen.getByTestId("positions-table-scroll")).toHaveClass("overflow-y-auto");
+    // overflow-auto (not just overflow-y-auto): the table also needs to scroll horizontally
+    // on narrow viewports instead of the page overflowing - see issue #101.
+    expect(screen.getByTestId("positions-table-scroll")).toHaveClass("overflow-auto");
   });
 
   it("truncates a long asset name and shows the full name plus an explanation on hover", async () => {

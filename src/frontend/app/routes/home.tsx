@@ -108,7 +108,7 @@ function SimulationListScreen() {
       <div
         className={`relative mx-auto flex flex-col gap-8 ${populated ? "max-w-[1360px]" : "max-w-[640px]"}`}
       >
-        <header className="flex items-center justify-between">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center bg-ink font-display text-xl text-paper">
               蔵
@@ -120,7 +120,7 @@ function SimulationListScreen() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {populated && (
               <Button type="button" onClick={() => setCreateModalOpen(true)}>
                 New Simulation
@@ -395,7 +395,7 @@ function DeleteConfirmDialog({
         if (event.target === event.currentTarget) close();
       }}
     >
-      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
+      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="delete-simulation-title" className="font-display text-xl font-bold text-ink">
           Delete &quot;{simulation.name}&quot;?
         </h3>
@@ -498,7 +498,7 @@ function CreateSimulationDialog({
     >
       <form
         onSubmit={handleSubmit}
-        className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]"
+        className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8"
       >
         <h3 id="create-simulation-title" className="font-display text-xl font-bold text-ink">
           New simulation

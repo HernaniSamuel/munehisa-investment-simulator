@@ -27,7 +27,7 @@ export function AuthShell({
           </p>
         </div>
 
-        <div className="relative border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
+        <div className="relative border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
           <h2 className="mb-6 font-display text-xl font-bold text-ink">{title}</h2>
           {children}
         </div>

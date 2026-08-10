@@ -176,7 +176,7 @@ function SimulationDashboardScreen() {
               onAdvanceClick={() => setAdvanceDialogOpen(true)}
             />
 
-            <div className="grid grid-cols-4 gap-4">
+            <div data-testid="kpi-grid" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <CashBalanceCard
                 simulation={simulation}
                 onContribute={() => setCashDialogMode("deposit")}
@@ -187,15 +187,15 @@ function SimulationDashboardScreen() {
               <GainLossCard positionsData={positionsData} baseCurrency={simulation.baseCurrency} />
             </div>
 
-            <div className="flex gap-4">
-              <div className="flex-[1.75]">
+            <div className="flex flex-col gap-4 lg:flex-row">
+              <div data-testid="positions-column" className="lg:flex-[1.75]">
                 <PositionsTable
                   positions={positionsData.positions}
                   simulationId={simulation.id}
                   baseCurrency={simulation.baseCurrency}
                 />
               </div>
-              <div className="flex-1">
+              <div data-testid="allocation-column" className="lg:flex-1">
                 <AllocationDonut positions={positionsData.positions} baseCurrency={simulation.baseCurrency} />
               </div>
             </div>
@@ -248,14 +248,14 @@ function DashboardHeader({
   onAdvanceClick: () => void;
 }) {
   return (
-    <header className="flex items-start justify-between gap-6">
-      <div className="flex items-center gap-4">
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 items-center gap-4">
         <Link to="/" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
           ← Back
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <Tooltip label={simulation.name}>
-            <h1 className="max-w-[320px] truncate font-display text-xl font-bold text-ink">
+            <h1 className="truncate font-display text-xl font-bold text-ink">
               {simulation.name}
             </h1>
           </Tooltip>
@@ -265,7 +265,7 @@ function DashboardHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <div className="border border-ink/15 bg-panel px-4 py-2 text-center">
           <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Current date</p>
           <p className="mt-1 font-display text-lg font-bold text-ink" data-testid="current-date-value">
@@ -446,8 +446,8 @@ function PositionsTable({
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
       <h2 className="font-display text-lg font-bold text-ink">Positions</h2>
-      <div className="mt-3 max-h-[320px] overflow-y-auto" data-testid="positions-table-scroll">
-        <table className="w-full border-collapse">
+      <div className="mt-3 max-h-[320px] overflow-auto" data-testid="positions-table-scroll">
+        <table className="w-full min-w-[640px] border-collapse">
           <thead>
             <tr className="border-b border-ink/30 text-left">
               <th className="py-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted">Ticker</th>
@@ -727,7 +727,7 @@ function CashMovementDialog({
     >
       <form
         onSubmit={handleSubmit}
-        className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]"
+        className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8"
       >
         <h3 id="cash-movement-title" className="font-display text-xl font-bold text-ink">
           {title}
@@ -829,7 +829,7 @@ function AdvanceConfirmDialog({
         if (event.target === event.currentTarget) close();
       }}
     >
-      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
+      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="advance-month-title" className="font-display text-xl font-bold text-ink">
           Advance to the next month?
         </h3>
@@ -910,7 +910,7 @@ function ResetConfirmDialog({
         if (event.target === event.currentTarget) close();
       }}
     >
-      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
+      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="reset-month-title" className="font-display text-xl font-bold text-ink">
           Reset this month?
         </h3>

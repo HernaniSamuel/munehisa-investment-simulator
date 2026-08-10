@@ -312,9 +312,9 @@ function TradeScreen() {
       : "ready";
 
   return (
-    <main className="relative flex h-screen flex-col overflow-hidden bg-paper px-4 py-4">
+    <main className="relative flex min-h-screen flex-col overflow-y-auto bg-paper px-4 py-4 lg:h-screen lg:overflow-hidden">
       <div className="washi-texture" aria-hidden="true" />
-      <div className="relative flex flex-1 flex-col gap-4 overflow-hidden">
+      <div className="relative flex flex-1 flex-col gap-4 overflow-visible lg:overflow-hidden">
         {status === "loading" && <p className="font-mono text-sm text-muted">Loading simulation…</p>}
 
         {status === "error" && <Banner tone="error">{loadError}</Banner>}
@@ -323,11 +323,15 @@ function TradeScreen() {
           <>
             <TradeHeader simulationId={simulation.id} />
 
-            {/* Fixed-width sidebar (search, then the selected asset's info/holding/buy-sell form)
-                next to a chart panel that claims the rest of the screen - the chart is the
-                focal point here, not one card among equals. */}
-            <div className="flex flex-1 gap-4 overflow-hidden">
-              <div className="flex w-[380px] shrink-0 flex-col gap-4 overflow-y-auto">
+            {/* Sidebar (search, then the selected asset's info/holding/buy-sell form) stacks
+                above the chart panel below the lg breakpoint, and sits at a fixed width beside
+                a chart panel that claims the rest of the screen from lg up - the chart is the
+                focal point there, not one card among equals. */}
+            <div className="flex flex-1 flex-col gap-4 overflow-visible lg:flex-row lg:overflow-hidden">
+              <div
+                data-testid="trade-sidebar"
+                className="flex flex-col gap-4 overflow-visible lg:w-[380px] lg:shrink-0 lg:overflow-y-auto"
+              >
                 <SearchPanel
                   query={query}
                   onQueryChange={setQuery}
@@ -356,7 +360,10 @@ function TradeScreen() {
                 )}
               </div>
 
-              <div className="flex flex-1 flex-col overflow-hidden">
+              <div
+                data-testid="trade-chart-panel"
+                className="flex h-[420px] flex-col overflow-hidden lg:h-auto lg:flex-1"
+              >
                 {selectedAsset ? (
                   <TradeChartPanel bars={bars} />
                 ) : assetLoading ? (
@@ -483,7 +490,7 @@ function AssetInfoCard({
         </div>
         <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{asset.currency}</p>
       </div>
-      <div className="mt-4 grid grid-cols-4 gap-4">
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <HoldingStat testId="holding-quantity" label="Quantity" value={String(holding?.quantity ?? 0)} />
         <HoldingStat
           testId="holding-market-value"

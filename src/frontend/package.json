@@ -7,7 +7,8 @@
     "dev": "react-router dev",
     "start": "serve -s build/client -l 3000",
     "typecheck": "react-router typegen && tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:responsive": "playwright test"
   },
   "dependencies": {
     "@react-router/node": "8.0.0",
@@ -19,6 +20,7 @@
     "serve": "^14.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@react-router/dev": "8.0.0",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
