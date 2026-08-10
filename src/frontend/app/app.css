@@ -52,3 +52,45 @@ html {
   opacity: 0.45;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.26'/%3E%3C/svg%3E");
 }
+
+/* Zankyo (dark) theme token overrides - DESIGN.md §7. A plain (unlayered)
+   rule beats Tailwind's @layer theme regardless of selector specificity, so
+   this repaints every bg-paper/text-ink/bg-panel/... utility with no
+   component changes. Vermilion and --color-on-verm are unchanged per
+   DESIGN.md. --color-name isn't in DESIGN.md's §7 table, but it's a text
+   color in the same family as --color-ink/--color-muted and is used
+   app-wide (text-name) - left at its Sumi value it would be near-illegible
+   against a dark panel, so it's overridden here too.
+*/
+[data-theme="zankyo"] {
+  --color-paper: #14100c;
+  --color-panel: #1b150f;
+  --color-ink: #ede4d3;
+  --color-name: #a89a82;
+  --color-muted: #8e8474;
+  --color-teal: #57e3d0;
+}
+
+[data-theme="zankyo"] .washi-texture {
+  mix-blend-mode: soft-light;
+  opacity: 0.5;
+}
+
+/* Cyan scanline, layered independently of the grain above so its alpha
+   isn't compounded with the grain's opacity. Reuses --color-teal (already
+   the phosphor-cyan value in this scope) rather than a second hardcoded
+   color. */
+[data-theme="zankyo"] .washi-texture::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-teal) 70%, transparent) 0px,
+    color-mix(in srgb, var(--color-teal) 70%, transparent) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
