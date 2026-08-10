@@ -234,7 +234,7 @@ function DeleteAccountSection() {
         >
           <form
             onSubmit={handleConfirm}
-            className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]"
+            className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8"
           >
             <h3 id="delete-account-title" className="font-display text-xl font-bold text-ink">
               Confirm deletion
