@@ -32,9 +32,10 @@ Visual design follows [`DESIGN.md`](./DESIGN.md) (the "Sumi" skin).
 ### Verifying changes
 
 ```
-npm run test        # vitest
-npm run typecheck    # react-router typegen + tsc
-npm run build        # production build (also run in CI)
+npm run test             # vitest
+npm run test:responsive  # playwright viewport/layout suite
+npm run typecheck        # react-router typegen + tsc
+npm run build            # production build (also run in CI)
 ```
 
 ### Testing
@@ -64,6 +65,19 @@ Two kinds of tests live under `app/`, both run by `npm run test`:
   example usage.
 - `seedAuthenticatedUser()` / `makeToken()` - seed `localStorage` the way a real login would, so a
   component hydrates already-authenticated without going through a login form submission.
+
+### Responsive/viewport testing
+
+`npm run test:responsive` runs a [Playwright](https://playwright.dev/) suite (`playwright.config.ts`,
+tests under `e2e/`) that checks every route renders without horizontal overflow, and that the
+layouts documented in issue #101 (the `trade` sidebar/chart split, the dashboard's KPI grid and
+positions/allocation panels, and every confirmation modal) behave correctly at 320px, 375px,
+768px, and 1024px+. It starts its own `npm run dev` server (see `webServer` in
+`playwright.config.ts`) and never talks to a real backend: protected routes are reached by seeding
+`localStorage` with a fake token (`e2e/support.ts`'s `seedAuth`) and intercepting `simulationApi`
+calls with fixture responses (`mockSimulationApi`), the same mocking approach the Vitest component
+tests use for `~/lib/api`. Only Chromium is exercised, since the behavior under test is CSS layout,
+not browser-engine-specific rendering.
 
 ## Routes
 
