@@ -21,6 +21,27 @@ body {
   color: var(--color-ink);
 }
 
+/* Scrollbars: match the paper/ink palette instead of the browser/OS default. scrollbar-color
+   is inherited, so setting it once on html reaches every scrollable descendant; the webkit
+   pseudo-elements are not inherited, so they use * to reach the same set. */
+html {
+  scrollbar-color: var(--color-muted) var(--color-panel);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--color-panel);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-muted);
+}
+
 /* Washi grain overlay - see DESIGN.md "Texture & surface". Apply on an
    absolutely-positioned element inset over the screen container. */
 .washi-texture {
