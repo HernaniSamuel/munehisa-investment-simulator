@@ -1,7 +1,14 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mockFetchOnce, renderWithProviders, seedAuthenticatedUser, STORAGE_KEY } from "~/test/test-utils";
+import {
+  mockFetchOnce,
+  renderWithProviders,
+  seedAuthenticatedUser,
+  seedTheme,
+  STORAGE_KEY,
+  THEME_STORAGE_KEY,
+} from "~/test/test-utils";
 import { ApiError, authApi, userApi } from "~/lib/api";
 import Settings from "./settings";
 
@@ -81,6 +88,44 @@ describe("ChangeNameSection", () => {
 
     expect(await screen.findByText("Name cannot be blank.")).toBeInTheDocument();
     expect(userApi.updateName).not.toHaveBeenCalled();
+  });
+});
+
+describe("ThemeSection", () => {
+  it("shows Sumi as the selected theme by default", () => {
+    renderSettings();
+
+    expect(screen.getByRole("button", { name: "Sumi" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Zankyō" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("selecting Zankyō marks it as selected and persists the preference", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Zankyō" }));
+
+    expect(screen.getByRole("button", { name: "Zankyō" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Sumi" })).toHaveAttribute("aria-pressed", "false");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("zankyo");
+  });
+
+  it("renders with Zankyō already selected when it was the persisted preference", () => {
+    seedTheme("zankyo");
+    renderSettings();
+
+    expect(screen.getByRole("button", { name: "Zankyō" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("switching back to Sumi restores the selection and persists it", async () => {
+    seedTheme("zankyo");
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Sumi" }));
+
+    expect(screen.getByRole("button", { name: "Sumi" })).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("sumi");
   });
 });
 

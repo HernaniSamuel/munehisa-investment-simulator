@@ -3,8 +3,10 @@ import type { ReactElement } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { vi } from "vitest";
 import { AuthProvider } from "~/lib/auth-context";
+import { ThemeProvider, type Theme } from "~/lib/theme-context";
 
 export const STORAGE_KEY = "munehisa.auth";
+export const THEME_STORAGE_KEY = "munehisa.theme";
 
 function base64url(obj: object): string {
   return Buffer.from(JSON.stringify(obj))
@@ -54,10 +56,17 @@ export function seedAuthenticatedUser(overrides: { name?: string; token?: string
   return stored;
 }
 
+// Seeds localStorage the same way ThemeProvider's setTheme() does, so
+// rendering afterwards hydrates as already having a persisted preference
+// without going through a Settings click.
+export function seedTheme(theme: Theme) {
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
 // Renders a route component wrapped the way root.tsx wires it in the real
-// app: a router (so useNavigate/useLocation/Link work) around AuthProvider
-// (so useAuth works). `route` can carry router state, matching how login.tsx
-// reads location.state.from.
+// app: a router (so useNavigate/useLocation/Link work) around ThemeProvider
+// and AuthProvider (so useTheme/useAuth work). `route` can carry router
+// state, matching how login.tsx reads location.state.from.
 //
 // `redirectStubs` matters for anything that can navigate away from itself
 // while still mounted (most commonly ProtectedRoute rendering <Navigate>
@@ -93,18 +102,20 @@ export function renderWithProviders(
 
   return render(
     <MemoryRouter initialEntries={[route]}>
-      <AuthProvider>
-        {redirectStubs.length > 0 || path !== undefined ? (
-          <Routes>
-            <Route path={routePath} element={ui} />
-            {redirectStubs.map((stub) => (
-              <Route key={stub.path} path={stub.path} element={stub.element} />
-            ))}
-          </Routes>
-        ) : (
-          ui
-        )}
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          {redirectStubs.length > 0 || path !== undefined ? (
+            <Routes>
+              <Route path={routePath} element={ui} />
+              {redirectStubs.map((stub) => (
+                <Route key={stub.path} path={stub.path} element={stub.element} />
+              ))}
+            </Routes>
+          ) : (
+            ui
+          )}
+        </AuthProvider>
+      </ThemeProvider>
     </MemoryRouter>
   );
 }

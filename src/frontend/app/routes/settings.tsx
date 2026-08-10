@@ -4,6 +4,7 @@ import type { Route } from "./+types/settings";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { useAuth } from "~/lib/auth-context";
+import { useTheme } from "~/lib/theme-context";
 import { ApiError, authApi, userApi } from "~/lib/api";
 
 export function meta({}: Route.MetaArgs) {
@@ -43,6 +44,7 @@ function SettingsScreen() {
         </header>
 
         <ChangeNameSection />
+        <ThemeSection />
         <ChangePasswordSection email={email} />
         <DeleteAccountSection />
       </div>
@@ -105,6 +107,36 @@ function ChangeNameSection() {
           {submitting ? "Saving…" : "▸▸ Save name"}
         </Button>
       </form>
+    </section>
+  );
+}
+
+function ThemeSection() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <section className="border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
+      <h2 className="font-display text-xl font-bold text-ink">Theme</h2>
+      <p className="mt-2 font-sans text-sm text-name">Choose the app&apos;s color palette.</p>
+
+      <div className="mt-4 flex gap-3" role="group" aria-label="Theme">
+        <Button
+          type="button"
+          variant={theme === "sumi" ? "primary" : "ink"}
+          aria-pressed={theme === "sumi"}
+          onClick={() => setTheme("sumi")}
+        >
+          Sumi
+        </Button>
+        <Button
+          type="button"
+          variant={theme === "zankyo" ? "primary" : "ink"}
+          aria-pressed={theme === "zankyo"}
+          onClick={() => setTheme("zankyo")}
+        >
+          Zankyō
+        </Button>
+      </div>
     </section>
   );
 }
