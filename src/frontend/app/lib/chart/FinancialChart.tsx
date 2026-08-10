@@ -18,6 +18,14 @@ const VOLUME_HEIGHT_RATIO = 0.2;
 const PANEL_GAP = 8;
 const DEFAULT_SIZE = { width: 600, height: 400 };
 
+// Hover-tooltip layout. TOOLTIP_CHAR_WIDTH is a heuristic average glyph
+// width at fontSize 10 (no DOM measurement), just enough to size the
+// background box for the longest line.
+const TOOLTIP_PADDING = 6;
+const TOOLTIP_LINE_HEIGHT = 12;
+const TOOLTIP_GAP = 8;
+const TOOLTIP_CHAR_WIDTH = 6;
+
 const priceFormat = format(",.2f");
 const volumeFormat = format(",.0f");
 const axisDateFormat = timeFormat("%b %d");
@@ -28,6 +36,33 @@ function pickTickIndices(barCount: number, maxTicks: number): number[] {
   if (barCount <= maxTicks) return Array.from({ length: barCount }, (_, i) => i);
   const step = (barCount - 1) / (maxTicks - 1);
   return Array.from({ length: maxTicks }, (_, i) => Math.round(i * step));
+}
+
+// Anchors the tooltip above the hovered candle's high, flipping below its
+// low (or to the other horizontal side) whenever the default placement
+// would clip past the chart's edges, so it stays glued to the candle it
+// describes instead of the raw pointer position.
+function positionTooltip(
+  anchorX: number,
+  topY: number,
+  bottomY: number,
+  boxWidth: number,
+  boxHeight: number,
+  bounds: { width: number; height: number }
+): { x: number; y: number } {
+  let x = anchorX + TOOLTIP_GAP;
+  if (x + boxWidth > bounds.width) {
+    x = anchorX - TOOLTIP_GAP - boxWidth;
+  }
+  x = Math.min(Math.max(x, 0), Math.max(bounds.width - boxWidth, 0));
+
+  let y = topY - TOOLTIP_GAP - boxHeight;
+  if (y < 0) {
+    y = bottomY + TOOLTIP_GAP;
+  }
+  y = Math.min(Math.max(y, 0), Math.max(bounds.height - boxHeight, 0));
+
+  return { x, y };
 }
 
 export type FinancialChartProps = {
@@ -172,6 +207,31 @@ export function FinancialChart({
   const tickIndices = pickTickIndices(bars.length, 6);
   const hoverBar = hoverIndex !== undefined ? bars[hoverIndex] : undefined;
 
+  const tooltipLines = hoverBar
+    ? [
+        readoutDateFormat(hoverBar.date),
+        `O ${priceFormat(hoverBar.open)}`,
+        `H ${priceFormat(hoverBar.high)}`,
+        `L ${priceFormat(hoverBar.low)}`,
+        `C ${priceFormat(hoverBar.close)}`,
+        `V ${volumeFormat(hoverBar.volume)}`,
+      ]
+    : [];
+  const tooltipWidth =
+    Math.max(...tooltipLines.map((line) => line.length), 0) * TOOLTIP_CHAR_WIDTH + TOOLTIP_PADDING * 2;
+  const tooltipHeight = tooltipLines.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING * 2;
+  const tooltipPos =
+    hoverBar && hoverIndex !== undefined
+      ? positionTooltip(
+          xScale(hoverIndex),
+          yScale(hoverBar.high),
+          yScale(hoverBar.low),
+          tooltipWidth,
+          tooltipHeight,
+          { width: innerWidth, height: innerHeight }
+        )
+      : { x: 0, y: 0 };
+
   return (
     <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
       <svg width={size.width} height={size.height} role="img" aria-label="Financial chart">
@@ -273,7 +333,7 @@ export function FinancialChart({
             );
           })}
 
-          {/* Crosshair readout */}
+          {/* Crosshair guide lines */}
           {hoverBar && hoverIndex !== undefined && (
             <g data-testid="chart-crosshair" pointerEvents="none">
               <line
@@ -292,13 +352,28 @@ export function FinancialChart({
                 stroke={theme.text}
                 strokeDasharray="2,2"
               />
-              <text x={4} y={12} fontSize={10} fill={theme.text}>
-                {`${readoutDateFormat(hoverBar.date)}  O ${priceFormat(hoverBar.open)}  H ${priceFormat(
-                  hoverBar.high
-                )}  L ${priceFormat(hoverBar.low)}  C ${priceFormat(hoverBar.close)}  V ${volumeFormat(
-                  hoverBar.volume
-                )}`}
-              </text>
+            </g>
+          )}
+
+          {/* OHLCV tooltip, anchored near the hovered candle */}
+          {hoverBar && hoverIndex !== undefined && (
+            <g
+              data-testid="chart-tooltip"
+              pointerEvents="none"
+              transform={`translate(${tooltipPos.x}, ${tooltipPos.y})`}
+            >
+              <rect width={tooltipWidth} height={tooltipHeight} fill={theme.background} stroke={theme.grid} />
+              {tooltipLines.map((line, index) => (
+                <text
+                  key={index}
+                  x={TOOLTIP_PADDING}
+                  y={TOOLTIP_PADDING + (index + 1) * TOOLTIP_LINE_HEIGHT - 2}
+                  fontSize={10}
+                  fill={theme.text}
+                >
+                  {line}
+                </text>
+              ))}
             </g>
           )}
 
