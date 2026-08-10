@@ -2,7 +2,8 @@
 
 React + Vite (React Router v8, framework mode, SPA build) frontend for the Munehisa investment simulator. This module only covers the authentication flows against the Spring Boot backend in [`../backend`](../backend); the investment simulator screens are a separate, later module.
 
-Visual design follows [`DESIGN.md`](./DESIGN.md) (the "Sumi" skin).
+Visual design follows [`DESIGN.md`](./DESIGN.md) — Sumi (light) by default, with an optional
+Zankyō (dark) theme.
 
 ## Stack
 
