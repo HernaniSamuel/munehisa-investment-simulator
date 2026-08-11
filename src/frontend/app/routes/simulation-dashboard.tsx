@@ -4,6 +4,7 @@ import type { Route } from "./+types/simulation-dashboard";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { Tooltip } from "~/components/Tooltip";
+import { CurrencyValue } from "~/components/CurrencyValue";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { useAuth } from "~/lib/auth-context";
 import {
@@ -17,7 +18,14 @@ import {
   type Transaction,
   type TransactionType,
 } from "~/lib/api";
-import { formatCurrency, formatMonthYear, formatPercent, truncateName } from "~/lib/format";
+import {
+  formatCurrency,
+  formatCurrencyExact,
+  formatMonthYear,
+  formatPercent,
+  isAbbreviatedCurrency,
+  truncateName,
+} from "~/lib/format";
 import { computeDonutSegments, type DonutSegment } from "~/lib/donut";
 
 export function meta({}: Route.MetaArgs) {
@@ -34,6 +42,18 @@ export default function SimulationDashboard() {
 
 function genToastId(): string {
   return `${Date.now()}-${Math.random()}`;
+}
+
+// Shared by every non-toast, non-donut-tooltip currency display in this
+// file - see CurrencyValue for why abbreviated/exact are precomputed here
+// rather than passed as formatter callbacks.
+function currencyValue(amount: number, baseCurrency: "BRL" | "USD") {
+  return (
+    <CurrencyValue
+      abbreviated={formatCurrency(amount, baseCurrency)}
+      exact={isAbbreviatedCurrency(amount) ? formatCurrencyExact(amount, baseCurrency) : null}
+    />
+  );
 }
 
 const CASH_BALANCE_EXPLANATION = "The amount available to buy assets.";
@@ -335,7 +355,7 @@ function CashBalanceCard({
         <div>
           <StatCardHeader seal="金" label="Cash balance" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink" data-testid="cash-balance-value">
-            {formatCurrency(simulation.cashBalance, simulation.baseCurrency)}
+            {currencyValue(simulation.cashBalance, simulation.baseCurrency)}
           </p>
         </div>
       </Tooltip>
@@ -380,7 +400,7 @@ function PortfolioValueCard({
         <div>
           <StatCardHeader seal="株" label="Portfolio value" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
-            {formatCurrency(positionsData.totalAssetValue, baseCurrency)}
+            {currencyValue(positionsData.totalAssetValue, baseCurrency)}
           </p>
           <p className="mt-1 font-mono text-xs text-muted">{positionsData.positions.length} positions</p>
         </div>
@@ -403,7 +423,7 @@ function TotalValueCard({
         <div>
           <StatCardHeader seal="総" label="Total value" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
-            {formatCurrency(total, simulation.baseCurrency)}
+            {currencyValue(total, simulation.baseCurrency)}
           </p>
         </div>
       </Tooltip>
@@ -428,7 +448,7 @@ function GainLossCard({
             className={`mt-3 font-display text-[31px] font-bold ${positive ? "text-vermilion" : "text-ink"}`}
             data-testid="gain-loss-value"
           >
-            {formatCurrency(positionsData.totalGainAmount, baseCurrency)}
+            {currencyValue(positionsData.totalGainAmount, baseCurrency)}
           </p>
           <p className={`mt-1 font-mono text-xs ${positive ? "text-vermilion" : "text-ink"}`}>
             {formatPercent(positionsData.totalGainPercent)}
@@ -489,17 +509,17 @@ function PositionsTable({
                 </td>
                 <td className="py-2 text-right font-mono text-sm text-ink">{position.quantity}</td>
                 <td className="py-2 text-right font-mono text-sm text-ink">
-                  {formatCurrency(position.currentPrice, baseCurrency)}
+                  {currencyValue(position.currentPrice, baseCurrency)}
                 </td>
                 <td className="py-2 text-right font-mono text-sm text-ink">
-                  {formatCurrency(position.marketValue, baseCurrency)}
+                  {currencyValue(position.marketValue, baseCurrency)}
                 </td>
                 <td
                   className={`py-2 text-right font-mono text-sm ${
                     position.gainAmount >= 0 ? "text-vermilion" : "text-ink"
                   }`}
                 >
-                  {formatCurrency(position.gainAmount, baseCurrency)} ({formatPercent(position.gainPercent)})
+                  {currencyValue(position.gainAmount, baseCurrency)} ({formatPercent(position.gainPercent)})
                 </td>
               </tr>
             ))}
@@ -651,7 +671,7 @@ function TransactionHistory({
                       VERMILION_TYPES.includes(tx.type) ? "text-vermilion" : "text-ink"
                     }`}
                   >
-                    {formatCurrency(tx.amount, baseCurrency)}
+                    {currencyValue(tx.amount, baseCurrency)}
                   </span>
                 </li>
               ))}

@@ -15,7 +15,7 @@ import {
   type Transaction,
   type TransactionType,
 } from "~/lib/api";
-import { formatCurrency, formatPercent } from "~/lib/format";
+import { formatCurrency, formatCurrencyExact, formatPercent } from "~/lib/format";
 import SimulationDashboard from "./simulation-dashboard";
 
 // RTL's getByText/toHaveTextContent normalize a DOM node's own whitespace
@@ -27,6 +27,10 @@ import SimulationDashboard from "./simulation-dashboard";
 // normalizeSpaces() so both sides compare on equal footing.
 function money(amount: number, baseCurrency: "BRL" | "USD"): string {
   return formatCurrency(amount, baseCurrency).replace(/[  ]/g, " ");
+}
+
+function exactMoney(amount: number, baseCurrency: "BRL" | "USD"): string {
+  return formatCurrencyExact(amount, baseCurrency).replace(/[  ]/g, " ");
 }
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -253,6 +257,44 @@ describe("stat cards", () => {
     );
   });
 
+  it("abbreviates a cash balance of 1 billion or more and reveals the exact value on hover", async () => {
+    const largeSim = { ...sim, cashBalance: 1_234_567_890 };
+    mockLoadSuccess({ simulation: largeSim });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const abbreviated = money(largeSim.cashBalance, largeSim.baseCurrency);
+    const value = screen.getByTestId("cash-balance-value");
+    expect(value).toHaveTextContent(abbreviated);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.hover(within(value).getByText(abbreviated));
+    const tooltips = await screen.findAllByRole("tooltip");
+    // Both the card's own explanatory tooltip and the new value tooltip can
+    // be open at once, since the value's Tooltip trigger sits nested inside
+    // the card's own Tooltip trigger.
+    expect(tooltips).toHaveLength(2);
+    expect(
+      tooltips.some(
+        (t) => t.textContent?.replace(/[  ]/g, " ") === exactMoney(largeSim.cashBalance, largeSim.baseCurrency)
+      )
+    ).toBe(true);
+  });
+
+  it("does not add a value tooltip for a cash balance under 1 billion (only the card's own explanation)", async () => {
+    mockLoadSuccess();
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const value = screen.getByTestId("cash-balance-value");
+    await user.hover(within(value).getByText(money(sim.cashBalance, sim.baseCurrency)));
+    const tooltips = await screen.findAllByRole("tooltip");
+    expect(tooltips).toHaveLength(1);
+    expect(tooltips[0]).toHaveTextContent("amount available to buy assets");
+  });
+
   it("renders portfolio value and position count from positions", async () => {
     mockLoadSuccess();
     renderDashboard();
@@ -372,6 +414,27 @@ describe("positions table", () => {
     expect(tableScroll.getByText(money(position1.marketValue, sim.baseCurrency))).toBeInTheDocument();
   });
 
+  it("abbreviates a large price/market value/gain and reveals the exact value on hover", async () => {
+    const largePosition: Position = {
+      ...position1,
+      currentPrice: 1_234_567_890,
+      marketValue: 2_500_000_000_000,
+      gainAmount: 1_000_000_000,
+    };
+    mockLoadSuccess({ positions: { ...positionsResponse, positions: [largePosition] } });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const priceText = money(largePosition.currentPrice, sim.baseCurrency);
+    const marketValueText = money(largePosition.marketValue, sim.baseCurrency);
+    expect(screen.getByText(priceText)).toBeInTheDocument();
+    expect(screen.getByText(marketValueText)).toBeInTheDocument();
+
+    await user.hover(screen.getByText(marketValueText));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(largePosition.marketValue, sim.baseCurrency));
+  });
+
   it("scrolls internally within a fixed-height container, in both directions", async () => {
     mockLoadSuccess();
     renderDashboard();
@@ -470,6 +533,21 @@ describe("allocation donut", () => {
     expect(tooltip).toHaveTextContent(money(position1.marketValue, sim.baseCurrency));
   });
 
+  it("abbreviates large costBasis/marketValue in the slice tooltip without nesting a second tooltip", async () => {
+    const largePosition: Position = { ...position1, costBasis: 1_234_567_890, marketValue: 2_500_000_000_000 };
+    mockLoadSuccess({ positions: { ...positionsResponse, positions: [largePosition] } });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.hover(screen.getByRole("img", { name: `${largePosition.ticker} — ${largePosition.assetName}` }));
+    const tooltips = await screen.findAllByRole("tooltip");
+
+    expect(tooltips).toHaveLength(1);
+    expect(tooltips[0]).toHaveTextContent(money(largePosition.costBasis, sim.baseCurrency));
+    expect(tooltips[0]).toHaveTextContent(money(largePosition.marketValue, sim.baseCurrency));
+  });
+
   it("the allocation legend scrolls internally while the chart remains visible outside the scroll container", async () => {
     mockLoadSuccess();
     renderDashboard();
@@ -534,6 +612,22 @@ describe("transaction history", () => {
       expect(screen.getByText(new RegExp(label))).toBeInTheDocument();
     }
   );
+
+  it("abbreviates a large transaction amount and reveals the exact value on hover", async () => {
+    const largeAmount = 1_234_567_890;
+    mockLoadSuccess({
+      txs: [{ type: "DEPOSIT", month: "2020-01", amount: largeAmount, ticker: null, assetName: null, quantity: null }],
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const abbreviated = money(largeAmount, sim.baseCurrency);
+    expect(screen.getByText(abbreviated)).toBeInTheDocument();
+
+    await user.hover(screen.getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(largeAmount, sim.baseCurrency));
+  });
 
   it("hovering (or focusing) a Sell label shows a tooltip explaining split-triggered sales", async () => {
     mockLoadSuccess({
@@ -667,6 +761,30 @@ describe("deposit and withdraw", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByText(money(51000, sim.baseCurrency))).toBeInTheDocument();
     await waitFor(() => expect(simulationApi.transactions).toHaveBeenCalledTimes(2));
+  });
+
+  it("abbreviates a deposit toast's applied amount when it is 1 billion or more, with no tooltip", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.deposit).mockResolvedValueOnce({
+      simulationId: sim.id,
+      appliedAmount: 1_234_567_890,
+      cashBalance: 1_284_567_890,
+      totalPatrimony: 1_384_567_890,
+      deflation: null,
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.click(screen.getByRole("button", { name: "+ Contribute" }));
+    await user.type(screen.getByLabelText(/Amount/), "1234567890");
+    await user.click(screen.getByRole("button", { name: "Contribute" }));
+
+    const toast = await screen.findByText(/Deposited/);
+    expect(toast).toHaveTextContent(money(1_234_567_890, sim.baseCurrency));
+
+    await user.hover(toast);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("keeps the deposit modal open with an inline Banner error on failure", async () => {

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import type { Route } from "./+types/trade";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { ToastStack, type ToastItem } from "~/components/Toast";
+import { CurrencyValue } from "~/components/CurrencyValue";
 import { useAuth } from "~/lib/auth-context";
 import { useTheme } from "~/lib/theme-context";
 import {
@@ -15,7 +16,14 @@ import {
   type TickerSearchResult,
   type TradeResponse,
 } from "~/lib/api";
-import { formatCurrency, formatPercent } from "~/lib/format";
+import {
+  abbreviateCurrency,
+  formatCurrency,
+  formatCurrencyExact,
+  formatCurrencyPlain,
+  formatPercent,
+  isAbbreviatedCurrency,
+} from "~/lib/format";
 import { FinancialChart, sumiTheme, zankyoTheme, type Bar } from "~/lib/chart";
 
 export function meta({}: Route.MetaArgs) {
@@ -51,7 +59,14 @@ function parseYearMonth(yearMonth: string): Date {
 // simulation's "BRL"|"USD" base currency formatCurrency is typed to), so
 // buy/sell readouts use this local formatter instead.
 function formatAssetCurrency(amount: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+  return abbreviateCurrency(amount, undefined, currency);
+}
+
+// The exact, unabbreviated value for the asset's own currency - what a
+// Tooltip shows next to formatAssetCurrency's (possibly abbreviated) display
+// string.
+function formatAssetCurrencyExact(amount: number, currency: string): string {
+  return formatCurrencyPlain(amount, undefined, currency);
 }
 
 // currentPrice/marketValue/gainAmount/gainPercent are nullable: there's no
@@ -464,7 +479,7 @@ function HoldingStat({
   testId,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   positive?: boolean;
   testId: string;
 }) {
@@ -504,12 +519,30 @@ function AssetInfoCard({
         <HoldingStat
           testId="holding-market-value"
           label="Market value"
-          value={holding?.marketValue != null ? formatCurrency(holding.marketValue, baseCurrency) : "—"}
+          value={
+            holding?.marketValue != null ? (
+              <CurrencyValue
+                abbreviated={formatCurrency(holding.marketValue, baseCurrency)}
+                exact={isAbbreviatedCurrency(holding.marketValue) ? formatCurrencyExact(holding.marketValue, baseCurrency) : null}
+              />
+            ) : (
+              "—"
+            )
+          }
         />
         <HoldingStat
           testId="holding-current-price"
           label="Current price"
-          value={holding?.currentPrice != null ? formatCurrency(holding.currentPrice, baseCurrency) : "—"}
+          value={
+            holding?.currentPrice != null ? (
+              <CurrencyValue
+                abbreviated={formatCurrency(holding.currentPrice, baseCurrency)}
+                exact={isAbbreviatedCurrency(holding.currentPrice) ? formatCurrencyExact(holding.currentPrice, baseCurrency) : null}
+              />
+            ) : (
+              "—"
+            )
+          }
         />
         <HoldingStat
           testId="holding-gain-loss"
@@ -637,12 +670,28 @@ function TradeForm({
 
       <div className="mt-4 flex flex-col gap-1 font-mono text-sm">
         <p className="text-ink">
-          {mode === "buy" ? "Estimated cost" : "Estimated proceeds"}: {formatAssetCurrency(estimatedAmount, asset.currency)}
+          {mode === "buy" ? "Estimated cost" : "Estimated proceeds"}:{" "}
+          <CurrencyValue
+            abbreviated={formatAssetCurrency(estimatedAmount, asset.currency)}
+            exact={isAbbreviatedCurrency(estimatedAmount) ? formatAssetCurrencyExact(estimatedAmount, asset.currency) : null}
+          />
         </p>
         <p className={affordable ? "text-muted" : "text-vermilion"}>
-          {mode === "buy"
-            ? `Cash available: ${formatAssetCurrency(asset.cashBalance.amount, asset.currency)}`
-            : `Held: ${heldQuantity} share${heldQuantity === 1 ? "" : "s"}`}
+          {mode === "buy" ? (
+            <>
+              Cash available:{" "}
+              <CurrencyValue
+                abbreviated={formatAssetCurrency(asset.cashBalance.amount, asset.currency)}
+                exact={
+                  isAbbreviatedCurrency(asset.cashBalance.amount)
+                    ? formatAssetCurrencyExact(asset.cashBalance.amount, asset.currency)
+                    : null
+                }
+              />
+            </>
+          ) : (
+            `Held: ${heldQuantity} share${heldQuantity === 1 ? "" : "s"}`
+          )}
         </p>
       </div>
 
