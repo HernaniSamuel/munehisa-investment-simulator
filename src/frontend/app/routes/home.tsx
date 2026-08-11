@@ -413,13 +413,13 @@ function DeleteConfirmDialog({
           <Button
             ref={cancelButtonRef}
             type="button"
-            variant="ink"
+            variant="primary"
             onClick={close}
             disabled={submitting}
           >
             Cancel
           </Button>
-          <Button type="button" onClick={handleConfirm} disabled={submitting}>
+          <Button type="button" variant="solid" onClick={handleConfirm} disabled={submitting}>
             {submitting ? "Deleting…" : "Delete"}
           </Button>
         </div>

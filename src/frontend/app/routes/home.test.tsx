@@ -323,6 +323,21 @@ describe("delete", () => {
     expect(simulationApi.remove).not.toHaveBeenCalled();
   });
 
+  it("styles Cancel as vermilion/red and Confirm as a solid ink fill", async () => {
+    const user = await renderWithOneSimulation();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog");
+
+    const cancelButton = within(dialog).getByRole("button", { name: "Cancel" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Delete" });
+
+    expect(cancelButton).toHaveClass("bg-vermilion");
+    expect(confirmButton).toHaveClass("bg-ink", "text-paper");
+    expect(confirmButton).not.toHaveClass("bg-vermilion");
+    expect(confirmButton).not.toHaveClass("border-ink/25");
+  });
+
   it("keeps the dialog open with an inline error and the card in place when delete fails", async () => {
     const user = await renderWithOneSimulation();
     vi.mocked(simulationApi.remove).mockRejectedValueOnce(new ApiError(500, "Request failed (500)"));

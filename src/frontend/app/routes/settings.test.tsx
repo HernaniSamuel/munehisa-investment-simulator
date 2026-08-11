@@ -174,6 +174,22 @@ describe("DeleteAccountSection", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("styles Cancel as vermilion/red and Confirm as a solid ink fill", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirm deletion" });
+
+    const cancelButton = within(dialog).getByRole("button", { name: "Cancel" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Delete account" });
+
+    expect(cancelButton).toHaveClass("bg-vermilion");
+    expect(confirmButton).toHaveClass("bg-ink", "text-paper");
+    expect(confirmButton).not.toHaveClass("bg-vermilion");
+    expect(confirmButton).not.toHaveClass("border-ink/25");
+  });
+
   it("keeps the modal open with an inline error on a wrong password, without triggering a global logout", async () => {
     // Goes through the real userApi.deleteAccount -> request() rather than a
     // mocked function, so this actually exercises the
