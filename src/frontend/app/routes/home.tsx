@@ -11,9 +11,10 @@ import {
   buttonVariantClasses,
 } from "~/components/ui";
 import { ToastStack, type ToastItem } from "~/components/Toast";
+import { Tooltip } from "~/components/Tooltip";
 import { useAuth } from "~/lib/auth-context";
 import { ApiError, simulationApi, type Simulation } from "~/lib/api";
-import { formatCurrency, formatMonthYear } from "~/lib/format";
+import { formatCurrency, formatMonthYear, truncateName } from "~/lib/format";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -83,7 +84,7 @@ function SimulationListScreen() {
   function handleDeleted(simulation: Simulation) {
     setSimulations((prev) => (prev ? prev.filter((s) => s.id !== simulation.id) : prev));
     setDeleteTarget(null);
-    addToast(`"${simulation.name}" was permanently deleted.`);
+    addToast(`"${truncateName(simulation.name)}" was permanently deleted.`);
   }
 
   // "YYYY-MM" YearMonth strings sort lexicographically the same as
@@ -214,6 +215,7 @@ function SimulationCard({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const displayName = truncateName(simulation.name);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -299,7 +301,15 @@ function SimulationCard({
           </form>
         ) : (
           <div className="flex flex-1 items-center justify-between gap-2">
-            <h3 className="font-display text-lg font-bold text-ink">{simulation.name}</h3>
+            {displayName === simulation.name ? (
+              <h3 className="font-display text-lg font-bold text-ink">{displayName}</h3>
+            ) : (
+              <Tooltip label={simulation.name}>
+                <h3 className="font-display text-lg font-bold text-ink" tabIndex={0}>
+                  {displayName}
+                </h3>
+              </Tooltip>
+            )}
             <button
               type="button"
               aria-label="Edit name"
@@ -363,6 +373,7 @@ function DeleteConfirmDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const displayName = truncateName(simulation.name);
 
   function close() {
     if (submitting) return;
@@ -408,7 +419,15 @@ function DeleteConfirmDialog({
     >
       <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="delete-simulation-title" className="font-display text-xl font-bold text-ink">
-          Delete &quot;{simulation.name}&quot;?
+          Delete &quot;
+          {displayName === simulation.name ? (
+            displayName
+          ) : (
+            <Tooltip label={simulation.name}>
+              <span tabIndex={0}>{displayName}</span>
+            </Tooltip>
+          )}
+          &quot;?
         </h3>
         <p className="mt-2 font-sans text-sm text-name">
           This permanently deletes this simulation and cannot be undone.

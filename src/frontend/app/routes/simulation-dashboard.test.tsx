@@ -186,17 +186,31 @@ describe("loading and error states", () => {
 });
 
 describe("header", () => {
-  it("truncates a long simulation name and reveals the full name on hover", async () => {
+  it("truncates a long simulation name to 20 characters plus an ellipsis and reveals the full name on hover", async () => {
     const longName = "A".repeat(80);
     mockLoadSuccess({ simulation: { ...sim, name: longName } });
     const user = userEvent.setup();
     renderDashboard();
 
     const heading = await screen.findByRole("heading", { level: 1 });
-    expect(heading).toHaveClass("truncate");
+    expect(heading).toHaveTextContent(`${"A".repeat(20)}…`);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     await user.hover(heading);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(longName);
+  });
+
+  it("shows a simulation name of 20 characters or fewer in full, with no ellipsis and no tooltip", async () => {
+    const shortName = "A".repeat(20);
+    mockLoadSuccess({ simulation: { ...sim, name: shortName } });
+    const user = userEvent.setup();
+    renderDashboard();
+
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(shortName);
+
+    await user.hover(heading);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("shows the current month and year without a day component", async () => {

@@ -31,3 +31,11 @@ export function formatMonthYear(yearMonth: string): string {
     .format(date)
     .toUpperCase();
 }
+
+const NAME_DISPLAY_LIMIT = 20;
+
+// For read-only displays only (cards, headers, dialogs) - never apply this to
+// an editable field's value, which must keep showing/submitting the full name.
+export function truncateName(name: string): string {
+  return name.length > NAME_DISPLAY_LIMIT ? `${name.slice(0, NAME_DISPLAY_LIMIT)}…` : name;
+}
