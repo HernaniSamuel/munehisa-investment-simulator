@@ -407,6 +407,60 @@ describe("Max", () => {
   });
 });
 
+describe("max quantity cap", () => {
+  it("sets the quantity input's max attribute to floor(convertedCashBalance / currentPrice) for buy", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce({
+      ...assetDetail,
+      cashBalance: { amount: 250, currency: "USD", wasConverted: true },
+    });
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    expect(screen.getByLabelText("Quantity")).toHaveAttribute("max", "2");
+  });
+
+  it("sets the quantity input's max attribute to the held quantity for sell", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.click(screen.getByRole("button", { name: "Sell" }));
+
+    expect(screen.getByLabelText("Quantity")).toHaveAttribute("max", "10");
+  });
+
+  it("disables Buy shares when the typed quantity exceeds the computed buy max", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce({
+      ...assetDetail,
+      cashBalance: { amount: 250, currency: "USD", wasConverted: true },
+    });
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.type(screen.getByLabelText("Quantity"), "3");
+
+    expect(screen.getByRole("button", { name: "Buy shares" })).toBeDisabled();
+  });
+
+  it("disables Sell shares when the typed quantity exceeds the held quantity", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.click(screen.getByRole("button", { name: "Sell" }));
+    await user.type(screen.getByLabelText("Quantity"), "11");
+
+    expect(screen.getByRole("button", { name: "Sell shares" })).toBeDisabled();
+  });
+});
+
 describe("submitting a trade", () => {
   it("submitting a buy calls POST /buy with {ticker, quantity} and updates cash/holding figures on success", async () => {
     mockLoadSuccess();
@@ -526,19 +580,21 @@ describe("trade failures", () => {
   it("shows an error toast and preserves the entered quantity when a sell fails", async () => {
     mockLoadSuccess();
     vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
-    vi.mocked(simulationApi.sell).mockRejectedValueOnce(
-      new ApiError(400, "Cannot sell 20 units of AAPL - only 10 held")
-    );
+    // A quantity within the held amount (10) so the submit button stays
+    // enabled - the failure here is a backend-side rejection unrelated to
+    // the client-side max cap (e.g. price staleness), not an over-held sell,
+    // since the latter can no longer reach the API once submit is capped.
+    vi.mocked(simulationApi.sell).mockRejectedValueOnce(new ApiError(400, "Sell rejected - please try again"));
     const user = userEvent.setup();
     renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
     await screen.findByRole("heading", { name: "Trade" });
 
     await user.click(screen.getByRole("button", { name: "Sell" }));
-    await user.type(screen.getByLabelText("Quantity"), "20");
+    await user.type(screen.getByLabelText("Quantity"), "5");
     await user.click(screen.getByRole("button", { name: "Sell shares" }));
 
-    expect(await screen.findByText(/only 10 held/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Quantity")).toHaveValue(20);
+    expect(await screen.findByText(/Sell rejected/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Quantity")).toHaveValue(5);
   });
 });
 
