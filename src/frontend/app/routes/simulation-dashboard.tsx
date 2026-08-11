@@ -446,7 +446,7 @@ function PositionsTable({
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
       <h2 className="font-display text-lg font-bold text-ink">Positions</h2>
-      <div className="mt-3 max-h-[320px] overflow-auto" data-testid="positions-table-scroll">
+      <div className="mt-3 max-h-[320px] overflow-auto pr-3 pb-3" data-testid="positions-table-scroll">
         <table className="w-full min-w-[640px] border-collapse">
           <thead>
             <tr className="border-b border-ink/30 text-left">
@@ -569,7 +569,7 @@ function AllocationDonut({
           </text>
         </svg>
       </div>
-      <div className="mt-4 max-h-[140px] overflow-y-auto" data-testid="donut-legend">
+      <div className="mt-4 max-h-[140px] overflow-y-auto pr-3" data-testid="donut-legend">
         <ul className="flex flex-col gap-1.5">
           {segments.map((segment) => (
             <li key={segment.ticker} className="flex items-center gap-2 font-mono text-[11px] text-name">
@@ -618,7 +618,7 @@ function TransactionHistory({
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
       <h2 className="font-display text-lg font-bold text-ink">Transaction history</h2>
-      <div className="mt-3 max-h-[400px] overflow-y-auto" data-testid="transaction-history-scroll">
+      <div className="mt-3 max-h-[400px] overflow-y-auto pr-3" data-testid="transaction-history-scroll">
         {groups.length === 0 && <p className="font-sans text-sm text-muted">No transactions yet.</p>}
         {groups.map(([month, txs]) => (
           <div key={month} className="mb-4">

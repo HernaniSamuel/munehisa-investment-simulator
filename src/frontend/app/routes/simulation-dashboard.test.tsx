@@ -368,6 +368,16 @@ describe("positions table", () => {
     expect(screen.getByTestId("positions-table-scroll")).toHaveClass("overflow-auto");
   });
 
+  it("keeps padding between the scrollbars and the content in both directions", async () => {
+    mockLoadSuccess();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    // pr-3: gap between the vertical scrollbar and the right-aligned Gain column.
+    // pb-3: gap between the horizontal scrollbar and the last row - see issue #108.
+    expect(screen.getByTestId("positions-table-scroll")).toHaveClass("pr-3", "pb-3");
+  });
+
   it("truncates a long asset name and shows the full name plus an explanation on hover", async () => {
     const longName = "B".repeat(80);
     mockLoadSuccess({
@@ -457,6 +467,15 @@ describe("allocation donut", () => {
     expect(chart.contains(legend)).toBe(false);
     expect(legend.contains(chart)).toBe(false);
   });
+
+  it("keeps padding between the legend's scrollbar and the percentage values", async () => {
+    mockLoadSuccess();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    // See issue #108: the scrollbar must not touch the percentage values.
+    expect(screen.getByTestId("donut-legend")).toHaveClass("pr-3");
+  });
 });
 
 describe("transaction history", () => {
@@ -508,6 +527,15 @@ describe("transaction history", () => {
     await screen.findByText(sim.name);
 
     expect(screen.getByTestId("transaction-history-scroll")).toHaveClass("overflow-y-auto");
+  });
+
+  it("keeps padding between the scrollbar and the amount values", async () => {
+    mockLoadSuccess();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    // See issue #108: the scrollbar must not touch the amount values.
+    expect(screen.getByTestId("transaction-history-scroll")).toHaveClass("pr-3");
   });
 
   it("the dashboard page itself is not height-constrained, so it scrolls vertically", async () => {
