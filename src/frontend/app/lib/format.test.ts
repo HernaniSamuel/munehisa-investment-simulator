@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrency, formatMonthYear, formatPercent } from "./format";
+import { formatCurrency, formatMonthYear, formatPercent, truncateName } from "./format";
 
 // Intl.NumberFormat's currency separator is a non-breaking space character,
 // but exactly which one (U+00A0 vs the narrower U+202F) depends on the
@@ -54,5 +54,25 @@ describe("formatPercent", () => {
 
   it("rounds to two decimal places", () => {
     expect(formatPercent(0.11111)).toBe("+11.11%");
+  });
+});
+
+describe("truncateName", () => {
+  it("returns names under 20 characters unchanged", () => {
+    expect(truncateName("Retirement plan")).toBe("Retirement plan");
+  });
+
+  it("returns a name of exactly 20 characters unchanged, with no ellipsis", () => {
+    const name = "A".repeat(20);
+    expect(truncateName(name)).toBe(name);
+  });
+
+  it("truncates a name over 20 characters to 20 characters plus an ellipsis", () => {
+    expect(truncateName("A".repeat(21))).toBe(`${"A".repeat(20)}…`);
+    expect(truncateName("A".repeat(80))).toBe(`${"A".repeat(20)}…`);
+  });
+
+  it("returns an empty string unchanged", () => {
+    expect(truncateName("")).toBe("");
   });
 });

@@ -17,7 +17,7 @@ import {
   type Transaction,
   type TransactionType,
 } from "~/lib/api";
-import { formatCurrency, formatMonthYear, formatPercent } from "~/lib/format";
+import { formatCurrency, formatMonthYear, formatPercent, truncateName } from "~/lib/format";
 import { computeDonutSegments, type DonutSegment } from "~/lib/donut";
 
 export function meta({}: Route.MetaArgs) {
@@ -249,6 +249,7 @@ function DashboardHeader({
   onResetClick: () => void;
   onAdvanceClick: () => void;
 }) {
+  const displayName = truncateName(simulation.name);
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex min-w-0 items-center gap-4">
@@ -256,11 +257,13 @@ function DashboardHeader({
           ← Back
         </Link>
         <div className="min-w-0 flex-1">
-          <Tooltip label={simulation.name}>
-            <h1 className="truncate font-display text-xl font-bold text-ink">
-              {simulation.name}
-            </h1>
-          </Tooltip>
+          {displayName === simulation.name ? (
+            <h1 className="font-display text-xl font-bold text-ink">{displayName}</h1>
+          ) : (
+            <Tooltip label={simulation.name}>
+              <h1 className="font-display text-xl font-bold text-ink">{displayName}</h1>
+            </Tooltip>
+          )}
           <p className="mt-1 font-mono text-[11px] uppercase tracking-[.14em] text-muted">
             Started {formatMonthYear(simulation.startMonth)} · {simulation.baseCurrency}
           </p>
