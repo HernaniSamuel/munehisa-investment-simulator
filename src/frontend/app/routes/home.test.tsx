@@ -157,6 +157,23 @@ describe("header", () => {
     expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
   });
 
+  it("styles Cancel as vermilion/red and Confirm as a solid ink fill", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    renderHome([loginStub]);
+    await screen.findByText(/Welcome,/);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    const dialog = screen.getByRole("dialog");
+
+    const cancelButton = within(dialog).getByRole("button", { name: "Cancel" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Log out" });
+
+    expect(cancelButton).toHaveClass("bg-vermilion");
+    expect(confirmButton).toHaveClass("bg-ink", "text-paper");
+    expect(confirmButton).not.toHaveClass("bg-vermilion");
+  });
+
   it("closes the dialog without logging out when clicking outside it", async () => {
     vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
     const user = userEvent.setup();

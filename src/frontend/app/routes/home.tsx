@@ -479,10 +479,10 @@ function LogoutConfirmDialog({
         </p>
 
         <div className="mt-6 flex justify-end gap-3">
-          <Button ref={cancelButtonRef} type="button" variant="ink" onClick={onCancel}>
+          <Button ref={cancelButtonRef} type="button" variant="primary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" variant="primary" onClick={onConfirm}>
+          <Button type="button" variant="solid" onClick={onConfirm}>
             Log out
           </Button>
         </div>
