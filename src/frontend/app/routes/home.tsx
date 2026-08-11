@@ -41,6 +41,7 @@ function SimulationListScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Simulation | null>(null);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   useEffect(() => {
@@ -129,7 +130,7 @@ function SimulationListScreen() {
             <Link to="/settings" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
               Settings
             </Link>
-            <Button variant="ink" onClick={handleLogout}>
+            <Button variant="ink" onClick={() => setLogoutConfirmOpen(true)}>
               Log out
             </Button>
           </div>
@@ -179,6 +180,16 @@ function SimulationListScreen() {
           simulation={deleteTarget}
           onCancel={() => setDeleteTarget(null)}
           onDeleted={handleDeleted}
+        />
+      )}
+
+      {logoutConfirmOpen && (
+        <LogoutConfirmDialog
+          onCancel={() => setLogoutConfirmOpen(false)}
+          onConfirm={() => {
+            setLogoutConfirmOpen(false);
+            handleLogout();
+          }}
         />
       )}
 
@@ -421,6 +432,58 @@ function DeleteConfirmDialog({
           </Button>
           <Button type="button" variant="solid" onClick={handleConfirm} disabled={submitting}>
             {submitting ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogoutConfirmDialog({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="logout-confirm-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
+        <h3 id="logout-confirm-title" className="font-display text-xl font-bold text-ink">
+          Log out?
+        </h3>
+        <p className="mt-2 font-sans text-sm text-name">
+          You&apos;ll need to sign in again to continue.
+        </p>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <Button ref={cancelButtonRef} type="button" variant="primary" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" variant="solid" onClick={onConfirm}>
+            Log out
           </Button>
         </div>
       </div>
