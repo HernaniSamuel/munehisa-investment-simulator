@@ -94,3 +94,10 @@ html {
     transparent 3px
   );
 }
+
+/* Delete-account re-entry password field (issue #111): a native reveal-password
+   icon isn't wanted here, so Edge/Chromium's ::-ms-reveal pseudo-element is
+   hidden for just this field via its id. */
+#delete-password::-ms-reveal {
+  display: none;
+}

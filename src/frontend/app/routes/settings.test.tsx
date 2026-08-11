@@ -190,6 +190,44 @@ describe("DeleteAccountSection", () => {
     expect(confirmButton).not.toHaveClass("border-ink/25");
   });
 
+  it("uses a new-password autoComplete value so the browser doesn't offer saved-credential suggestions", async () => {
+    // Standard cross-browser trick (issue #111): "current-password" makes
+    // Chromium-family browsers offer a saved-credentials dropdown on this
+    // field, which doesn't belong here since this is a re-entry field, not a
+    // login. In some Chromium-family browsers (observed in Brave) this
+    // attribute alone isn't enough - see the readOnly-until-focus test below
+    // for the other half of the fix. The matching reveal-icon suppression
+    // (app.css's #delete-password::-ms-reveal rule) is browser-rendering
+    // behavior that can't be observed in jsdom - see the PR description's
+    // manual verification note.
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirm deletion" });
+    const passwordField = within(dialog).getByLabelText("Password");
+
+    expect(passwordField).toHaveAttribute("autocomplete", "new-password");
+    expect(passwordField).toHaveAttribute("id", "delete-password");
+  });
+
+  it("clears readOnly once the field is auto-focused on open, after blocking Chromium's credential-suggestion dropdown at the initial focus", async () => {
+    // Chromium-family browsers decide whether to show their saved-credential
+    // dropdown at the moment a password field is focused, using the DOM's
+    // readOnly attribute at that instant. The field renders readOnly, and the
+    // modal's autofocus effect focuses it as soon as it opens; the onFocus
+    // handler then clears readOnly so typing still works normally (exercised
+    // by the "deletes the account..." test below, which types into it).
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirm deletion" });
+    const passwordField = within(dialog).getByLabelText("Password");
+
+    expect(passwordField).not.toHaveAttribute("readonly");
+  });
+
   it("keeps the modal open with an inline error on a wrong password, without triggering a global logout", async () => {
     // Goes through the real userApi.deleteAccount -> request() rather than a
     // mocked function, so this actually exercises the
