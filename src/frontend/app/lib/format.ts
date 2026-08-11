@@ -5,7 +5,6 @@ const CURRENCY_LOCALES: Record<"BRL" | "USD", string> = {
 
 const BILLION = 1_000_000_000;
 const TRILLION = 1_000_000_000_000;
-const QUADRILLION = 1_000_000_000_000_000;
 
 // Whether amount is large enough that formatCurrency/formatAssetCurrency
 // abbreviate it (and callers should show the exact value in a Tooltip).
@@ -30,25 +29,43 @@ function abbreviationSuffixes(locale: string | undefined): { billion: string; tr
   return resolved.startsWith("pt") ? { billion: " bi", trillion: " tri" } : { billion: "B", trillion: "T" };
 }
 
+const BUCKETS: { divisor: number; suffixKey: "billion" | "trillion" }[] = [
+  { divisor: BILLION, suffixKey: "billion" },
+  { divisor: TRILLION, suffixKey: "trillion" },
+];
+
+function formatScaled(amount: number, divisor: number, locale: string | undefined, currency: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount / divisor);
+}
+
 // Generic core shared by formatCurrency (BRL|USD) and trade.tsx's
 // formatAssetCurrency (arbitrary asset currency, browser-default locale) -
 // see the "formatAssetCurrency's suffix language" judgment call for why the
 // pt-prefix check above is locale-string-driven rather than a BRL/USD table.
 export function abbreviateCurrency(amount: number, locale: string | undefined, currency: string): string {
-  const abs = Math.abs(amount);
-  if (abs < BILLION) return formatCurrencyPlain(amount, locale, currency);
+  if (Math.abs(amount) < BILLION) return formatCurrencyPlain(amount, locale, currency);
 
-  const scaled = (divisor: number) =>
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount / divisor);
+  for (const { divisor, suffixKey } of BUCKETS) {
+    // Round first, then check whether the *rounded* number still reads as
+    // under 1000 in this bucket's unit. A raw magnitude like 999.9995
+    // billion is < 1 trillion, but rounds to "1,000.00 bi" - which is really
+    // 1 trillion and belongs in the next bucket up (1000 bi = 1 tri). Basing
+    // the bucket choice on the pre-rounding magnitude alone (as an earlier
+    // version of this function did) let that mismatch slip through; this
+    // escalates to the next bucket whenever rounding crosses the boundary.
+    const rounded = Math.round((Math.abs(amount) / divisor) * 100) / 100;
+    if (rounded < 1000) {
+      return formatScaled(amount, divisor, locale, currency) + abbreviationSuffixes(locale)[suffixKey];
+    }
+  }
 
-  if (abs < TRILLION) return scaled(BILLION) + abbreviationSuffixes(locale).billion;
-  if (abs < QUADRILLION) return scaled(TRILLION) + abbreviationSuffixes(locale).trillion;
-
+  // Rounds to >= 1000 even in the largest (trillion) bucket, i.e. >= 1
+  // quadrillion once rounded - the scientific-notation fallback.
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,

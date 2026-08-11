@@ -82,6 +82,22 @@ describe("formatCurrency", () => {
     expect(normalizeSpaces(formatCurrency(-2_500_000_000_000, "BRL"))).toBe("-R$ 2,50 tri");
     expect(normalizeSpaces(formatCurrency(-2.5e18, "USD"))).toBe("-$2.50E18");
   });
+
+  it("escalates to the tri/T suffix when rounding a near-1-trillion billion value crosses the boundary", () => {
+    // 999_999_500_000 is < 1 trillion, but amount/1e9 rounds to 1000.00,
+    // which reads as 1 trillion - the bucket must be picked from the
+    // rounded value, not the pre-rounding magnitude.
+    expect(normalizeSpaces(formatCurrency(999_999_500_000, "BRL"))).toBe("R$ 1,00 tri");
+    expect(normalizeSpaces(formatCurrency(999_999_500_000, "USD"))).toBe("$1.00T");
+    expect(normalizeSpaces(formatCurrency(-999_999_500_000, "USD"))).toBe("-$1.00T");
+  });
+
+  it("escalates to scientific notation when rounding a near-1-quadrillion trillion value crosses the boundary", () => {
+    // Same mismatch one bucket up: 999_999_500_000_000 is < 1 quadrillion,
+    // but amount/1e12 rounds to 1000.00 tri, i.e. 1 quadrillion.
+    expect(normalizeSpaces(formatCurrency(999_999_500_000_000, "BRL"))).toBe("R$ 1,00E15");
+    expect(normalizeSpaces(formatCurrency(999_999_500_000_000, "USD"))).toBe("$1.00E15");
+  });
 });
 
 describe("isAbbreviatedCurrency", () => {
