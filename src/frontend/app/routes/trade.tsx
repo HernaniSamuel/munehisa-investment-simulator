@@ -224,14 +224,21 @@ function TradeScreen() {
     }));
   }, [selectedAsset]);
 
-  function handleMaxClick() {
-    if (!selectedAsset) return;
+  // The same ceiling the "Max" button fills in - also used as the quantity
+  // input's max attribute/submit gate so neither the spinner nor typing can
+  // push the quantity past what's actually buyable/sellable.
+  const maxQuantity = useMemo(() => {
+    if (!selectedAsset) return 0;
     if (mode === "buy") {
       const max = assetCurrentPrice > 0 ? Math.floor(selectedAsset.cashBalance.amount / assetCurrentPrice) : 0;
-      setQuantity(String(Math.max(max, 0)));
-    } else {
-      setQuantity(String(heldQuantity));
+      return Math.max(max, 0);
     }
+    return heldQuantity;
+  }, [selectedAsset, mode, assetCurrentPrice, heldQuantity]);
+
+  function handleMaxClick() {
+    if (!selectedAsset) return;
+    setQuantity(String(maxQuantity));
   }
 
   function handleTradeSuccess(
@@ -353,6 +360,7 @@ function TradeScreen() {
                       onQuantityChange={setQuantity}
                       heldQuantity={heldQuantity}
                       currentPrice={assetCurrentPrice}
+                      maxQuantity={maxQuantity}
                       submitting={submitting}
                       onMax={handleMaxClick}
                       onSubmit={handleTradeSubmit}
@@ -552,6 +560,7 @@ function TradeForm({
   onQuantityChange,
   heldQuantity,
   currentPrice,
+  maxQuantity,
   submitting,
   onMax,
   onSubmit,
@@ -563,6 +572,7 @@ function TradeForm({
   onQuantityChange: (value: string) => void;
   heldQuantity: number;
   currentPrice: number;
+  maxQuantity: number;
   submitting: boolean;
   onMax: () => void;
   onSubmit: (event: FormEvent) => void;
@@ -575,7 +585,8 @@ function TradeForm({
       ? !validQuantity || estimatedAmount <= asset.cashBalance.amount
       : !validQuantity || parsedQuantity <= heldQuantity;
   const sellDisabled = heldQuantity === 0;
-  const canSubmit = !submitting && validQuantity && !(mode === "sell" && sellDisabled);
+  const exceedsMax = validQuantity && parsedQuantity > maxQuantity;
+  const canSubmit = !submitting && validQuantity && !exceedsMax && !(mode === "sell" && sellDisabled);
 
   return (
     <form onSubmit={onSubmit} className="border border-ink/10 bg-panel p-5">
@@ -607,6 +618,7 @@ function TradeForm({
             label="Quantity"
             type="number"
             min="1"
+            max={maxQuantity}
             step="1"
             value={quantity}
             onChange={(e) => onQuantityChange(e.target.value)}
