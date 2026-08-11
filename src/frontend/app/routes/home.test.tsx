@@ -102,7 +102,7 @@ describe("header", () => {
     expect(await screen.findByText("Settings page")).toBeInTheDocument();
   });
 
-  it("logs out and navigates to /login when Log out is clicked", async () => {
+  it("opens a confirmation dialog instead of logging out immediately when Log out is clicked", async () => {
     vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
     const user = userEvent.setup();
     renderHome([loginStub]);
@@ -110,8 +110,66 @@ describe("header", () => {
 
     await user.click(screen.getByRole("button", { name: "Log out" }));
 
+    expect(screen.getByRole("dialog")).toHaveTextContent("Log out?");
+    expect(screen.queryByText("Login page")).not.toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("logs out and navigates to /login when confirming inside the dialog", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    renderHome([loginStub]);
+    await screen.findByText(/Welcome,/);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Log out" }));
+
     expect(await screen.findByText("Login page")).toBeInTheDocument();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("closes the dialog without logging out when Cancel is clicked", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    renderHome([loginStub]);
+    await screen.findByText(/Welcome,/);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(/Welcome,/)).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("closes the dialog without logging out on Escape", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    renderHome([loginStub]);
+    await screen.findByText(/Welcome,/);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(/Welcome,/)).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("closes the dialog without logging out when clicking outside it", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    const user = userEvent.setup();
+    renderHome([loginStub]);
+    await screen.findByText(/Welcome,/);
+
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(/Welcome,/)).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
   });
 });
 
