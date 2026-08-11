@@ -190,6 +190,25 @@ describe("DeleteAccountSection", () => {
     expect(confirmButton).not.toHaveClass("border-ink/25");
   });
 
+  it("uses a new-password autoComplete value so the browser doesn't offer saved-credential suggestions", async () => {
+    // Standard cross-browser trick (issue #111): "current-password" makes
+    // Chromium-family browsers offer a saved-credentials dropdown on this
+    // field, which doesn't belong here since this is a re-entry field, not a
+    // login. The matching reveal-icon suppression (app.css's
+    // #delete-password::-ms-reveal rule) is browser-rendering behavior that
+    // can't be observed in jsdom - see the PR description's manual
+    // verification note.
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Delete account" }));
+    const dialog = screen.getByRole("dialog", { name: "Confirm deletion" });
+    const passwordField = within(dialog).getByLabelText("Password");
+
+    expect(passwordField).toHaveAttribute("autocomplete", "new-password");
+    expect(passwordField).toHaveAttribute("id", "delete-password");
+  });
+
   it("keeps the modal open with an inline error on a wrong password, without triggering a global logout", async () => {
     // Goes through the real userApi.deleteAccount -> request() rather than a
     // mocked function, so this actually exercises the

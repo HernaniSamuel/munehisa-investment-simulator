@@ -287,7 +287,7 @@ function DeleteAccountSection() {
                 id="delete-password"
                 label="Password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
