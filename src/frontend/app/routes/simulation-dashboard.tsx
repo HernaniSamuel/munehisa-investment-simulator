@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import type { Route } from "./+types/simulation-dashboard";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
 import { Tooltip } from "~/components/Tooltip";
+import { CurrencyValue } from "~/components/CurrencyValue";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { useAuth } from "~/lib/auth-context";
 import {
@@ -17,7 +18,14 @@ import {
   type Transaction,
   type TransactionType,
 } from "~/lib/api";
-import { formatCurrency, formatMonthYear, formatPercent, truncateName } from "~/lib/format";
+import {
+  formatCurrency,
+  formatCurrencyExact,
+  formatMonthYear,
+  formatPercent,
+  isAbbreviatedCurrency,
+  truncateName,
+} from "~/lib/format";
 import { computeDonutSegments, type DonutSegment } from "~/lib/donut";
 
 export function meta({}: Route.MetaArgs) {
@@ -34,6 +42,18 @@ export default function SimulationDashboard() {
 
 function genToastId(): string {
   return `${Date.now()}-${Math.random()}`;
+}
+
+// Shared by every non-toast, non-donut-tooltip currency display in this
+// file - see CurrencyValue for why abbreviated/exact are precomputed here
+// rather than passed as formatter callbacks.
+function currencyValue(amount: number, baseCurrency: "BRL" | "USD") {
+  return (
+    <CurrencyValue
+      abbreviated={formatCurrency(amount, baseCurrency)}
+      exact={isAbbreviatedCurrency(amount) ? formatCurrencyExact(amount, baseCurrency) : null}
+    />
+  );
 }
 
 const CASH_BALANCE_EXPLANATION = "The amount available to buy assets.";
@@ -97,7 +117,7 @@ function SimulationDashboardScreen() {
       .catch(() => {});
   }
 
-  function addToast(message: string) {
+  function addToast(message: ReactNode) {
     setToasts((prev) => [...prev, { id: genToastId(), message }]);
   }
 
@@ -111,7 +131,11 @@ function SimulationDashboardScreen() {
     );
     setCashDialogMode(null);
     const verb = mode === "deposit" ? "Deposited" : "Withdrew";
-    addToast(`${verb} ${formatCurrency(response.appliedAmount, simulation?.baseCurrency ?? "BRL")}.`);
+    addToast(
+      <>
+        {verb} {currencyValue(response.appliedAmount, simulation?.baseCurrency ?? "BRL")}.
+      </>
+    );
     refetchTransactions();
   }
 
@@ -140,10 +164,10 @@ function SimulationDashboardScreen() {
     for (const position of response.positions) {
       if (position.dividendReceived > 0) {
         addToast(
-          `${position.assetName} paid a dividend of ${formatCurrency(
-            position.dividendReceived,
-            simulation?.baseCurrency ?? "BRL"
-          )}.`
+          <>
+            {position.assetName} paid a dividend of{" "}
+            {currencyValue(position.dividendReceived, simulation?.baseCurrency ?? "BRL")}.
+          </>
         );
       }
     }
@@ -335,7 +359,7 @@ function CashBalanceCard({
         <div>
           <StatCardHeader seal="金" label="Cash balance" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink" data-testid="cash-balance-value">
-            {formatCurrency(simulation.cashBalance, simulation.baseCurrency)}
+            {currencyValue(simulation.cashBalance, simulation.baseCurrency)}
           </p>
         </div>
       </Tooltip>
@@ -380,7 +404,7 @@ function PortfolioValueCard({
         <div>
           <StatCardHeader seal="株" label="Portfolio value" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
-            {formatCurrency(positionsData.totalAssetValue, baseCurrency)}
+            {currencyValue(positionsData.totalAssetValue, baseCurrency)}
           </p>
           <p className="mt-1 font-mono text-xs text-muted">{positionsData.positions.length} positions</p>
         </div>
@@ -403,7 +427,7 @@ function TotalValueCard({
         <div>
           <StatCardHeader seal="総" label="Total value" />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
-            {formatCurrency(total, simulation.baseCurrency)}
+            {currencyValue(total, simulation.baseCurrency)}
           </p>
         </div>
       </Tooltip>
@@ -428,7 +452,7 @@ function GainLossCard({
             className={`mt-3 font-display text-[31px] font-bold ${positive ? "text-vermilion" : "text-ink"}`}
             data-testid="gain-loss-value"
           >
-            {formatCurrency(positionsData.totalGainAmount, baseCurrency)}
+            {currencyValue(positionsData.totalGainAmount, baseCurrency)}
           </p>
           <p className={`mt-1 font-mono text-xs ${positive ? "text-vermilion" : "text-ink"}`}>
             {formatPercent(positionsData.totalGainPercent)}
@@ -489,17 +513,17 @@ function PositionsTable({
                 </td>
                 <td className="py-2 text-right font-mono text-sm text-ink">{position.quantity}</td>
                 <td className="py-2 text-right font-mono text-sm text-ink">
-                  {formatCurrency(position.currentPrice, baseCurrency)}
+                  {currencyValue(position.currentPrice, baseCurrency)}
                 </td>
                 <td className="py-2 text-right font-mono text-sm text-ink">
-                  {formatCurrency(position.marketValue, baseCurrency)}
+                  {currencyValue(position.marketValue, baseCurrency)}
                 </td>
                 <td
                   className={`py-2 text-right font-mono text-sm ${
                     position.gainAmount >= 0 ? "text-vermilion" : "text-ink"
                   }`}
                 >
-                  {formatCurrency(position.gainAmount, baseCurrency)} ({formatPercent(position.gainPercent)})
+                  {currencyValue(position.gainAmount, baseCurrency)} ({formatPercent(position.gainPercent)})
                 </td>
               </tr>
             ))}
@@ -510,6 +534,17 @@ function PositionsTable({
   );
 }
 
+// SliceDetail only ever renders as another Tooltip's own portaled label
+// content (see AllocationDonut below), which has no hover handlers of its
+// own to stay open - so a second, nested Tooltip here would be unreachable
+// by mouse. The exact value is appended inline instead: it's still shown on
+// hover, just as more text within the one Tooltip that's already open.
+function currencyValueInline(amount: number, baseCurrency: "BRL" | "USD") {
+  const abbreviated = formatCurrency(amount, baseCurrency);
+  if (!isAbbreviatedCurrency(amount)) return abbreviated;
+  return `${abbreviated} (exact: ${formatCurrencyExact(amount, baseCurrency)})`;
+}
+
 function SliceDetail({ segment, baseCurrency }: { segment: DonutSegment; baseCurrency: "BRL" | "USD" }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -518,8 +553,8 @@ function SliceDetail({ segment, baseCurrency }: { segment: DonutSegment; baseCur
       </span>
       <span>Weight: {formatPercent(segment.weight)}</span>
       <span>Quantity: {segment.quantity}</span>
-      <span>Invested: {formatCurrency(segment.costBasis, baseCurrency)}</span>
-      <span>Market value: {formatCurrency(segment.marketValue, baseCurrency)}</span>
+      <span>Invested: {currencyValueInline(segment.costBasis, baseCurrency)}</span>
+      <span>Market value: {currencyValueInline(segment.marketValue, baseCurrency)}</span>
     </div>
   );
 }
@@ -651,7 +686,7 @@ function TransactionHistory({
                       VERMILION_TYPES.includes(tx.type) ? "text-vermilion" : "text-ink"
                     }`}
                   >
-                    {formatCurrency(tx.amount, baseCurrency)}
+                    {currencyValue(tx.amount, baseCurrency)}
                   </span>
                 </li>
               ))}

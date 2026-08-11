@@ -12,6 +12,7 @@ import {
   type Simulation,
   type TickerSearchResult,
 } from "~/lib/api";
+import { abbreviateCurrency, formatCurrency, formatCurrencyExact } from "~/lib/format";
 import Trade from "./trade";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -41,6 +42,21 @@ function usdCurrency(amount: number): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" })
     .format(amount)
     .replace(/[  ]/g, " ");
+}
+
+// The abbreviated form trade.tsx's local formatAssetCurrency produces for
+// the asset's own currency (browser-default locale, matching the app code).
+function usdCurrencyAbbreviated(amount: number): string {
+  return abbreviateCurrency(amount, undefined, "USD").replace(/[  ]/g, " ");
+}
+
+// mirrors simulation-dashboard.test.tsx's money()/exactMoney() helpers, for
+// the simulation's own baseCurrency (BRL here).
+function money(amount: number, baseCurrency: "BRL" | "USD"): string {
+  return formatCurrency(amount, baseCurrency).replace(/[  ]/g, " ");
+}
+function exactMoney(amount: number, baseCurrency: "BRL" | "USD"): string {
+  return formatCurrencyExact(amount, baseCurrency).replace(/[  ]/g, " ");
 }
 
 const sim: Simulation = {
@@ -374,6 +390,84 @@ describe("quantity-driven readout", () => {
     expect(screen.getByText(/Estimated proceeds/)).toHaveTextContent(usdCurrency(2000));
     expect(screen.getByText(/Held/)).toHaveTextContent("10 shares");
     expect(screen.getByText(/Held/)).toHaveClass("text-vermilion");
+  });
+});
+
+describe("large currency amounts (abbreviation)", () => {
+  it("abbreviates the holding's market value and current price, revealing the exact value on hover", async () => {
+    const largeHolding: Position = {
+      ...heldPosition,
+      currentPrice: 1_234_567_890,
+      marketValue: 2_500_000_000_000,
+    };
+    mockLoadSuccess({ positions: { ...positionsResponse, positions: [largeHolding] } });
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    const marketValueEl = screen.getByTestId("holding-market-value");
+    const abbreviatedMarketValue = money(largeHolding.marketValue, sim.baseCurrency);
+    expect(marketValueEl).toHaveTextContent(abbreviatedMarketValue);
+
+    await user.hover(within(marketValueEl).getByText(abbreviatedMarketValue));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(largeHolding.marketValue, sim.baseCurrency));
+  });
+
+  it("abbreviates the estimated cost, revealing the exact value on hover", async () => {
+    const largePriceAsset: AssetDetail = {
+      ...assetDetail,
+      series: [
+        { referenceMonth: "2020-01", open: 1e9, high: 1e9, low: 1e9, close: 2_000_000_000, volume: 1000, dividends: 0, splits: 0 },
+      ],
+    };
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(largePriceAsset);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.type(screen.getByLabelText("Quantity"), "1");
+
+    const estimatedCost = screen.getByText(/Estimated cost/);
+    const abbreviated = usdCurrencyAbbreviated(2_000_000_000);
+    expect(estimatedCost).toHaveTextContent(abbreviated);
+
+    await user.hover(within(estimatedCost).getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(usdCurrency(2_000_000_000));
+  });
+
+  it("abbreviates cash available, revealing the exact value on hover", async () => {
+    const largeCashAsset: AssetDetail = {
+      ...assetDetail,
+      cashBalance: { amount: 3_000_000_000, currency: "USD", wasConverted: false },
+    };
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(largeCashAsset);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    const cashAvailable = screen.getByText(/Cash available/);
+    const abbreviated = usdCurrencyAbbreviated(3_000_000_000);
+    expect(cashAvailable).toHaveTextContent(abbreviated);
+
+    await user.hover(within(cashAvailable).getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(usdCurrency(3_000_000_000));
+  });
+
+  it("shows no tooltip for values under the 1 billion abbreviation threshold", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.hover(screen.getByTestId("holding-market-value"));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.hover(screen.getByText(/Cash available/));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });
 

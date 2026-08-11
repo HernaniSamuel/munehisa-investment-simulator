@@ -12,9 +12,10 @@ import {
 } from "~/components/ui";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { Tooltip } from "~/components/Tooltip";
+import { CurrencyValue } from "~/components/CurrencyValue";
 import { useAuth } from "~/lib/auth-context";
 import { ApiError, simulationApi, type Simulation } from "~/lib/api";
-import { formatCurrency, formatMonthYear, truncateName } from "~/lib/format";
+import { formatCurrency, formatCurrencyExact, formatMonthYear, isAbbreviatedCurrency, truncateName } from "~/lib/format";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -340,7 +341,14 @@ function SimulationCard({
       <div>
         <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Cash balance</p>
         <p className="mt-1 font-display text-xl font-bold text-ink">
-          {formatCurrency(simulation.cashBalance, simulation.baseCurrency)}
+          <CurrencyValue
+            abbreviated={formatCurrency(simulation.cashBalance, simulation.baseCurrency)}
+            exact={
+              isAbbreviatedCurrency(simulation.cashBalance)
+                ? formatCurrencyExact(simulation.cashBalance, simulation.baseCurrency)
+                : null
+            }
+          />
         </p>
       </div>
 

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrency, formatMonthYear, formatPercent, truncateName } from "./format";
+import {
+  abbreviateCurrency,
+  formatCurrency,
+  formatCurrencyExact,
+  formatCurrencyPlain,
+  formatMonthYear,
+  formatPercent,
+  isAbbreviatedCurrency,
+  truncateName,
+} from "./format";
 
 // Intl.NumberFormat's currency separator is a non-breaking space character,
 // but exactly which one (U+00A0 vs the narrower U+202F) depends on the
@@ -22,6 +31,107 @@ describe("formatCurrency", () => {
 
   it("formats zero", () => {
     expect(normalizeSpaces(formatCurrency(0, "USD"))).toBe("$0.00");
+  });
+
+  it("leaves a value just under 1 billion unabbreviated", () => {
+    expect(normalizeSpaces(formatCurrency(999999999, "BRL"))).toBe("R$ 999.999.999,00");
+    expect(normalizeSpaces(formatCurrency(999999999, "USD"))).toBe("$999,999,999.00");
+  });
+
+  it("abbreviates exactly 1 billion with a bi/B suffix", () => {
+    expect(normalizeSpaces(formatCurrency(1_000_000_000, "BRL"))).toBe("R$ 1,00 bi");
+    expect(normalizeSpaces(formatCurrency(1_000_000_000, "USD"))).toBe("$1.00B");
+  });
+
+  it("abbreviates a mid-range billion value, rounded to 2 decimals", () => {
+    expect(normalizeSpaces(formatCurrency(1_234_567_890, "BRL"))).toBe("R$ 1,23 bi");
+    expect(normalizeSpaces(formatCurrency(1_234_567_890, "USD"))).toBe("$1.23B");
+  });
+
+  it("stays bi/B-suffixed just under 1 trillion", () => {
+    expect(normalizeSpaces(formatCurrency(999_000_000_000, "BRL"))).toBe("R$ 999,00 bi");
+    expect(normalizeSpaces(formatCurrency(999_000_000_000, "USD"))).toBe("$999.00B");
+  });
+
+  it("abbreviates exactly 1 trillion with a tri/T suffix", () => {
+    expect(normalizeSpaces(formatCurrency(1_000_000_000_000, "BRL"))).toBe("R$ 1,00 tri");
+    expect(normalizeSpaces(formatCurrency(1_000_000_000_000, "USD"))).toBe("$1.00T");
+  });
+
+  it("abbreviates a mid-range trillion value, rounded to 2 decimals", () => {
+    expect(normalizeSpaces(formatCurrency(2_500_000_000_000, "BRL"))).toBe("R$ 2,50 tri");
+    expect(normalizeSpaces(formatCurrency(2_500_000_000_000, "USD"))).toBe("$2.50T");
+  });
+
+  it("stays tri/T-suffixed just under 1 quadrillion", () => {
+    expect(normalizeSpaces(formatCurrency(999_000_000_000_000, "BRL"))).toBe("R$ 999,00 tri");
+    expect(normalizeSpaces(formatCurrency(999_000_000_000_000, "USD"))).toBe("$999.00T");
+  });
+
+  it("falls back to scientific notation at exactly 1 quadrillion", () => {
+    expect(normalizeSpaces(formatCurrency(1_000_000_000_000_000, "BRL"))).toBe("R$ 1,00E15");
+    expect(normalizeSpaces(formatCurrency(1_000_000_000_000_000, "USD"))).toBe("$1.00E15");
+  });
+
+  it("renders a very large value in scientific notation", () => {
+    expect(normalizeSpaces(formatCurrency(2.5e18, "USD"))).toBe("$2.50E18");
+  });
+
+  it("preserves the sign, without doubling it, for negative abbreviated values", () => {
+    expect(normalizeSpaces(formatCurrency(-1_234_567_890, "USD"))).toBe("-$1.23B");
+    expect(normalizeSpaces(formatCurrency(-2_500_000_000_000, "BRL"))).toBe("-R$ 2,50 tri");
+    expect(normalizeSpaces(formatCurrency(-2.5e18, "USD"))).toBe("-$2.50E18");
+  });
+
+  it("escalates to the tri/T suffix when rounding a near-1-trillion billion value crosses the boundary", () => {
+    // 999_999_500_000 is < 1 trillion, but amount/1e9 rounds to 1000.00,
+    // which reads as 1 trillion - the bucket must be picked from the
+    // rounded value, not the pre-rounding magnitude.
+    expect(normalizeSpaces(formatCurrency(999_999_500_000, "BRL"))).toBe("R$ 1,00 tri");
+    expect(normalizeSpaces(formatCurrency(999_999_500_000, "USD"))).toBe("$1.00T");
+    expect(normalizeSpaces(formatCurrency(-999_999_500_000, "USD"))).toBe("-$1.00T");
+  });
+
+  it("escalates to scientific notation when rounding a near-1-quadrillion trillion value crosses the boundary", () => {
+    // Same mismatch one bucket up: 999_999_500_000_000 is < 1 quadrillion,
+    // but amount/1e12 rounds to 1000.00 tri, i.e. 1 quadrillion.
+    expect(normalizeSpaces(formatCurrency(999_999_500_000_000, "BRL"))).toBe("R$ 1,00E15");
+    expect(normalizeSpaces(formatCurrency(999_999_500_000_000, "USD"))).toBe("$1.00E15");
+  });
+});
+
+describe("isAbbreviatedCurrency", () => {
+  it("is false just under the 1 billion threshold", () => {
+    expect(isAbbreviatedCurrency(999999999)).toBe(false);
+  });
+
+  it("is true at exactly 1 billion", () => {
+    expect(isAbbreviatedCurrency(1_000_000_000)).toBe(true);
+  });
+
+  it("compares by magnitude, so a large negative amount is also abbreviated", () => {
+    expect(isAbbreviatedCurrency(-1_000_000_000)).toBe(true);
+    expect(isAbbreviatedCurrency(-999999999)).toBe(false);
+  });
+});
+
+describe("formatCurrencyExact", () => {
+  it("always returns full precision, even for an amount formatCurrency would abbreviate", () => {
+    expect(normalizeSpaces(formatCurrencyExact(1_234_567_890, "USD"))).toBe("$1,234,567,890.00");
+    expect(normalizeSpaces(formatCurrencyExact(1_234_567_890, "BRL"))).toBe("R$ 1.234.567.890,00");
+  });
+});
+
+describe("abbreviateCurrency / formatCurrencyPlain (generic core)", () => {
+  it("derives the bi/tri suffix from the resolved locale, not a hardcoded BRL/USD table", () => {
+    // de-DE is neither BRL nor USD, and isn't pt-*, so it gets letter suffixes.
+    expect(normalizeSpaces(abbreviateCurrency(1_234_567_890, "de-DE", "EUR"))).toBe("1,23 €B");
+    // pt-PT isn't BRL, but is pt-*, so it gets word suffixes like pt-BR does.
+    expect(normalizeSpaces(abbreviateCurrency(1_234_567_890, "pt-PT", "EUR"))).toBe("1,23 € bi");
+  });
+
+  it("formatCurrencyPlain never abbreviates, regardless of magnitude", () => {
+    expect(normalizeSpaces(formatCurrencyPlain(1_234_567_890, "en-US", "USD"))).toBe("$1,234,567,890.00");
   });
 });
 

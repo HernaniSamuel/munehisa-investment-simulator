@@ -5,7 +5,16 @@ import { useParams } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders, seedAuthenticatedUser, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, simulationApi, type Simulation } from "~/lib/api";
+import { formatCurrency, formatCurrencyExact } from "~/lib/format";
 import Home from "./home";
+
+// mirrors simulation-dashboard.test.tsx's money()/exactMoney() helpers.
+function money(amount: number, baseCurrency: "BRL" | "USD"): string {
+  return formatCurrency(amount, baseCurrency).replace(/[  ]/g, " ");
+}
+function exactMoney(amount: number, baseCurrency: "BRL" | "USD"): string {
+  return formatCurrencyExact(amount, baseCurrency).replace(/[  ]/g, " ");
+}
 
 vi.mock("~/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/lib/api")>();
@@ -259,6 +268,31 @@ describe("populated state", () => {
     renderHome();
 
     expect(await screen.findByText("$15,000.50")).toBeInTheDocument();
+  });
+
+  it("abbreviates a cash balance of 1 billion or more and reveals the exact value on hover", async () => {
+    const largeSim: Simulation = { ...sim1, cashBalance: 1_234_567_890 };
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([largeSim]);
+    const user = userEvent.setup();
+    renderHome();
+    await screen.findByText(largeSim.name);
+
+    const abbreviated = money(largeSim.cashBalance, largeSim.baseCurrency);
+    expect(screen.getByText(abbreviated)).toBeInTheDocument();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.hover(screen.getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(largeSim.cashBalance, largeSim.baseCurrency));
+  });
+
+  it("does not add a tooltip for a cash balance under 1 billion", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([sim1]);
+    const user = userEvent.setup();
+    renderHome();
+    await screen.findByText(sim1.name);
+
+    await user.hover(screen.getByText(money(sim1.cashBalance, sim1.baseCurrency)));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("navigates to /simulations/{id} when Open is clicked", async () => {
