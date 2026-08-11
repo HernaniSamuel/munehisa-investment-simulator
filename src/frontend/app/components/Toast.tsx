@@ -1,8 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 
 const AUTO_DISMISS_MS = 5000;
 
-export type ToastItem = { id: string; message: string };
+export type ToastItem = { id: string; message: ReactNode };
 
 export function ToastStack({
   toasts,

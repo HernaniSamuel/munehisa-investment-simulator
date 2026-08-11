@@ -543,9 +543,15 @@ describe("allocation donut", () => {
     await user.hover(screen.getByRole("img", { name: `${largePosition.ticker} — ${largePosition.assetName}` }));
     const tooltips = await screen.findAllByRole("tooltip");
 
+    // The exact value is appended inline within this one tooltip (rather
+    // than a second, nested Tooltip) since a Tooltip nested inside another
+    // Tooltip's portaled label would be unreachable by mouse - see
+    // currencyValueInline in simulation-dashboard.tsx.
     expect(tooltips).toHaveLength(1);
     expect(tooltips[0]).toHaveTextContent(money(largePosition.costBasis, sim.baseCurrency));
+    expect(tooltips[0]).toHaveTextContent(exactMoney(largePosition.costBasis, sim.baseCurrency));
     expect(tooltips[0]).toHaveTextContent(money(largePosition.marketValue, sim.baseCurrency));
+    expect(tooltips[0]).toHaveTextContent(exactMoney(largePosition.marketValue, sim.baseCurrency));
   });
 
   it("the allocation legend scrolls internally while the chart remains visible outside the scroll container", async () => {
@@ -763,7 +769,7 @@ describe("deposit and withdraw", () => {
     await waitFor(() => expect(simulationApi.transactions).toHaveBeenCalledTimes(2));
   });
 
-  it("abbreviates a deposit toast's applied amount when it is 1 billion or more, with no tooltip", async () => {
+  it("abbreviates a deposit toast's applied amount when it is 1 billion or more, and reveals the exact value on hover", async () => {
     mockLoadSuccess();
     vi.mocked(simulationApi.deposit).mockResolvedValueOnce({
       simulationId: sim.id,
@@ -780,9 +786,33 @@ describe("deposit and withdraw", () => {
     await user.type(screen.getByLabelText(/Amount/), "1234567890");
     await user.click(screen.getByRole("button", { name: "Contribute" }));
 
+    const abbreviated = money(1_234_567_890, sim.baseCurrency);
     const toast = await screen.findByText(/Deposited/);
-    expect(toast).toHaveTextContent(money(1_234_567_890, sim.baseCurrency));
+    expect(toast).toHaveTextContent(abbreviated);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
+    await user.hover(within(toast).getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(1_234_567_890, sim.baseCurrency));
+  });
+
+  it("does not add a tooltip for a deposit toast's applied amount under 1 billion", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.deposit).mockResolvedValueOnce({
+      simulationId: sim.id,
+      appliedAmount: 1000,
+      cashBalance: 51000,
+      totalPatrimony: 151000,
+      deflation: null,
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.click(screen.getByRole("button", { name: "+ Contribute" }));
+    await user.type(screen.getByLabelText(/Amount/), "1000");
+    await user.click(screen.getByRole("button", { name: "Contribute" }));
+
+    const toast = await screen.findByText(/Deposited/);
     await user.hover(toast);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
@@ -1053,6 +1083,49 @@ describe("advance month", () => {
 
     expect(await screen.findByText(/Apple Inc\..*dividend/)).toBeInTheDocument();
     expect(screen.queryByText(/Microsoft Corporation.*dividend/)).not.toBeInTheDocument();
+  });
+
+  it("abbreviates a dividend toast's amount when it is 1 billion or more, and reveals the exact value on hover", async () => {
+    mockLoadSuccess();
+    const largeDividend = 1_234_567_890;
+    const advanceResponse: AdvanceMonthResponse = {
+      simulationId: sim.id,
+      currentMonth: "2020-02",
+      cashBalance: 45000,
+      totalAssetValue: 3000,
+      totalPatrimony: 48000,
+      positions: [
+        {
+          ticker: "AAPL",
+          assetName: "Apple Inc.",
+          quantity: 10,
+          price: 150,
+          wasTruncated: false,
+          dividendReceived: largeDividend,
+          weight: 0.5,
+          costBasis: 1400,
+          totalDividendsReceived: largeDividend,
+        },
+      ],
+    };
+    vi.mocked(simulationApi.advance).mockResolvedValueOnce(advanceResponse);
+    vi.mocked(simulationApi.positions).mockResolvedValueOnce(positionsResponse);
+    vi.mocked(simulationApi.transactions).mockResolvedValueOnce(transactions);
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.click(screen.getByRole("button", { name: "▸▸ Advance month" }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "▸▸ Advance month" })
+    );
+
+    const abbreviated = money(largeDividend, sim.baseCurrency);
+    const toast = await screen.findByText(/Apple Inc\..*dividend/);
+    expect(toast).toHaveTextContent(abbreviated);
+
+    await user.hover(within(toast).getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(exactMoney(largeDividend, sim.baseCurrency));
   });
 
   it("keeps the advance dialog open with an inline Banner error on failure", async () => {
