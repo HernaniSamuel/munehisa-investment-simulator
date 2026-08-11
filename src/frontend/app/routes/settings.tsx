@@ -199,11 +199,19 @@ function DeleteAccountSection() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Starts true and is cleared on the field's first focus. Chromium-family
+  // browsers skip a readonly field when deciding whether to show their
+  // saved-credentials suggestion dropdown, so this blocks that decision at
+  // the moment the field is auto-focused - autoComplete="new-password" alone
+  // isn't enough in some of them (e.g. Brave), even though it's the
+  // documented cross-browser signal for "this isn't a login field".
+  const [passwordReadOnly, setPasswordReadOnly] = useState(true);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
   function openModal() {
     setPassword("");
     setError(null);
+    setPasswordReadOnly(true);
     setModalOpen(true);
   }
 
@@ -288,6 +296,8 @@ function DeleteAccountSection() {
                 label="Password"
                 type="password"
                 autoComplete="new-password"
+                readOnly={passwordReadOnly}
+                onFocus={() => setPasswordReadOnly(false)}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
