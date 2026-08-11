@@ -521,6 +521,61 @@ describe("transaction history", () => {
     }
   );
 
+  it("hovering (or focusing) a Sell label shows a tooltip explaining split-triggered sales", async () => {
+    mockLoadSuccess({
+      txs: [
+        {
+          type: "SELL",
+          month: "2020-01",
+          amount: 100,
+          ticker: "AAPL",
+          assetName: "Apple Inc.",
+          quantity: 1,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    const label = screen.getByText("Sell");
+
+    await user.hover(label);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/split/i);
+
+    await user.unhover(label);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    act(() => label.focus());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/split/i);
+
+    act(() => label.blur());
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("does not show a tooltip on hover for other transaction types, e.g. Buy", async () => {
+    mockLoadSuccess({
+      txs: [
+        {
+          type: "BUY",
+          month: "2020-01",
+          amount: 100,
+          ticker: "AAPL",
+          assetName: "Apple Inc.",
+          quantity: 1,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.hover(screen.getByText(/Buy/));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
   it("the transaction panel scrolls internally", async () => {
     mockLoadSuccess();
     renderDashboard();

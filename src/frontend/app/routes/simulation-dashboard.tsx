@@ -46,6 +46,8 @@ const WITHDRAW_EXPLANATION = "Removes money from your cash balance, with an opti
 const ADVANCE_EXPLANATION = "Moves the simulation forward one month. This cannot be undone.";
 const RESET_EXPLANATION = "Reverts everything done since the last month advance. This cannot be undone.";
 const RESET_DISABLED_EXPLANATION = "Reset unlocks after you advance the month at least once.";
+const SELL_SPLIT_EXPLANATION =
+  "Some sells happen automatically when a stock split forces a sale, not because you sold.";
 
 function SimulationDashboardScreen() {
   const { id } = useParams<{ id: string }>();
@@ -632,7 +634,13 @@ function TransactionHistory({
                   className="flex items-center justify-between border-b border-ink/[.08] py-1.5"
                 >
                   <span className="font-sans text-sm text-name">
-                    {TRANSACTION_LABELS[tx.type]}
+                    {tx.type === "SELL" ? (
+                      <Tooltip label={SELL_SPLIT_EXPLANATION}>
+                        <span tabIndex={0}>{TRANSACTION_LABELS[tx.type]}</span>
+                      </Tooltip>
+                    ) : (
+                      TRANSACTION_LABELS[tx.type]
+                    )}
                     {tx.ticker ? ` · ${tx.ticker}` : ""}
                   </span>
                   <span
