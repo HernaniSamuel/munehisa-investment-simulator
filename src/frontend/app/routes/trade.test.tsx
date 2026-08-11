@@ -617,13 +617,13 @@ describe("chart", () => {
     ],
   };
 
-  it("renders the down candle in the Sumi teal by default", async () => {
+  it("renders the down candle in Sumi black by default", async () => {
     mockLoadSuccess();
     vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(downBarAssetDetail);
     renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
 
     const candle = await screen.findByTestId("candle");
-    expect(candle.querySelector("rect")).toHaveAttribute("fill", "#0C6156");
+    expect(candle.querySelector("rect")).toHaveAttribute("fill", "#1B1611");
   });
 
   it("renders the down candle in the Zankyō phosphor cyan when Zankyō is selected", async () => {
