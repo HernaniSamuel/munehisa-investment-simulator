@@ -20,7 +20,7 @@ Sumi is **light** (daytime paper). One warm accent only. No decorative gradients
 | `--name` | `#3A332A` | Secondary text / names in tables |
 | `--muted` | `#7A705F` | Labels, captions, metadata, hairlines in text |
 | **`--vermilion` 朱** | **`#DD3A22`** | **The only warm tone.** Primary action, "the now", **RISE**, seal icons |
-| `--teal` (2nd accent) | `#0C6156` | Secondary action, **FALL**, links, ↗ arrows |
+| `--teal` (2nd accent) | `#1B1611` | Secondary action, **FALL**, links, ↗ arrows |
 | `--onVerm` | `#EFE8DA` | Text/icon over vermilion |
 
 **Borders & rules (on paper):** derived from the ink with alpha — don't invent new grays.
@@ -32,7 +32,7 @@ Sumi is **light** (daytime paper). One warm accent only. No decorative gradients
 
 ### Semantic color rule — NON-NEGOTIABLE
 - **Vermilion `#DD3A22` = RISE / gain / execute / "now".** (Osaka 1750 style: red is a rise, not a fall.)
-- **Teal `#0C6156` = FALL / secondary / link.**
+- **Black `#1B1611` (the `--teal` token) = FALL / secondary / link.**
 - Never use green for "went up" or red for "went down." That is the brand's signature.
 - One warm accent per screen. If everything is red, nothing is.
 
@@ -81,7 +81,7 @@ background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/s
 Every button has a border and/or solid fill + a "stamp" micro-shadow. Never loose clickable text.
 
 - **Primary (vermilion):** `background:#DD3A22; color:#EFE8DA; border:none; box-shadow:0 2px 0 #9E2413;` hover `#C7331D`. E.g., `▸▸ Advance month`.
-- **Strong secondary (teal):** `background:#EFE8DA; color:#0C6156; border:1px solid #0C6156; box-shadow:0 2px 0 #0C615622;`. E.g., `⇄ Trade assets`.
+- **Strong secondary (black):** `background:#EFE8DA; color:#1B1611; border:1px solid #1B1611; box-shadow:0 2px 0 #1B161122;`. E.g., `⇄ Trade assets`.
 - **Ink / neutral:** `background:#EFE8DA; color:#1B1611; border:1px solid #1B161140; box-shadow:0 1px 0 #1B161114;` hover `#1B16110c`. E.g., `← Back`, `⟲ Reset`.
 - **Small chip:** `border:1px solid #1B161130; padding:6px 12px;` Space Mono 11px. E.g., `+ Contribute`, `Show ▾`.
 - Button font: **Space Mono**, 11–12px, `letter-spacing:.1em` on primaries.
@@ -98,7 +98,7 @@ A solid square with a white kanji in Zen Old Mincho. Fixed vocabulary:
 
 ### Table (positions)
 - Header: Space Mono 10px, `.08em` tracking, `--muted`, bottom border `#1B161130`.
-- Rows: `#1B161114` hairline; ticker in Space Mono 700; name in Zen Kaku 14px `--name` (+ teal ↗ arrow); numbers right-aligned in Space Mono; P&L colored per the rule (red = rise, teal = fall).
+- Rows: `#1B161114` hairline; ticker in Space Mono 700; name in Zen Kaku 14px `--name` (+ black ↗ arrow); numbers right-aligned in Space Mono; P&L colored per the rule (red = rise, black = fall).
 
 ### Allocation donut
 `conic-gradient` using the category palette in fixed order; core (`inset:36px`) in `--panel` color with the count in Zen Old Mincho + Space Mono label.
@@ -135,7 +135,7 @@ The same instrument at night. Only the temperature changes; **structure, typogra
 | `--panel` | `#E7DECE` | `#1B150F` |
 | `--ink` / `--title` | `#1B1611` / `#1B1611` | `#EDE4D3` / `#F1E8D7` |
 | `--muted` | `#7A705F` | `#8E8474` |
-| 2nd accent | teal `#0C6156` | phosphor cyan `#57E3D0` |
+| 2nd accent | black `#1B1611` | phosphor cyan `#57E3D0` |
 | texture | washi grain `multiply` op .45 | grain `soft-light` op .5 + cyan scanline |
 | button shadow | solid `0 2px 0` | contained `0 0 Npx` glow |
 
