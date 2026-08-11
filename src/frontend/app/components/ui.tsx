@@ -12,7 +12,7 @@ export const buttonVariantClasses: Record<ButtonVariant, string> = {
   primary:
     "bg-vermilion text-on-verm shadow-[0_2px_0_#9E2413] hover:bg-[#C7331D]",
   secondary:
-    "bg-paper text-teal border border-teal shadow-[0_2px_0_#0C615622] hover:bg-teal/5",
+    "bg-paper text-teal border border-teal shadow-[0_2px_0_#1B161122] hover:bg-teal/5",
   ink: "bg-paper text-ink border border-ink/25 shadow-[0_1px_0_#1B161114] hover:bg-ink/5",
 };
 
