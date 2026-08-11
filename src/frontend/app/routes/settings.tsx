@@ -295,10 +295,10 @@ function DeleteAccountSection() {
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
-              <Button type="button" variant="ink" onClick={closeModal} disabled={submitting}>
+              <Button type="button" variant="primary" onClick={closeModal} disabled={submitting}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting || !password}>
+              <Button type="submit" variant="solid" disabled={submitting || !password}>
                 {submitting ? "Deleting…" : "Delete account"}
               </Button>
             </div>

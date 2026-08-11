@@ -6,7 +6,7 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 
-type ButtonVariant = "primary" | "secondary" | "ink";
+type ButtonVariant = "primary" | "secondary" | "ink" | "solid";
 
 export const buttonVariantClasses: Record<ButtonVariant, string> = {
   primary:
@@ -14,6 +14,7 @@ export const buttonVariantClasses: Record<ButtonVariant, string> = {
   secondary:
     "bg-paper text-teal border border-teal shadow-[0_2px_0_#1B161122] hover:bg-teal/5",
   ink: "bg-paper text-ink border border-ink/25 shadow-[0_1px_0_#1B161114] hover:bg-ink/5",
+  solid: "bg-ink text-paper shadow-[0_2px_0_#00000040] hover:bg-ink/90",
 };
 
 export const buttonBaseClasses =
