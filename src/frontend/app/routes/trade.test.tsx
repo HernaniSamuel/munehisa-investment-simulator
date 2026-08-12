@@ -12,7 +12,7 @@ import {
   type Simulation,
   type TickerSearchResult,
 } from "~/lib/api";
-import { abbreviateCurrency, formatCurrency, formatCurrencyExact } from "~/lib/format";
+import { abbreviateCurrency, abbreviateNumber, formatCurrency, formatCurrencyExact, formatNumberExact } from "~/lib/format";
 import Trade from "./trade";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -57,6 +57,15 @@ function money(amount: number, baseCurrency: "BRL" | "USD"): string {
 }
 function exactMoney(amount: number, baseCurrency: "BRL" | "USD"): string {
   return formatCurrencyExact(amount, baseCurrency).replace(/[  ]/g, " ");
+}
+
+// mirrors usdCurrencyAbbreviated: trade.tsx's Quantity cell abbreviates via
+// the browser-default locale (undefined), same as the asset-currency cells.
+function quantityAbbreviated(amount: number): string {
+  return abbreviateNumber(amount, undefined).replace(/[  ]/g, " ");
+}
+function quantityExact(amount: number): string {
+  return formatNumberExact(amount, undefined).replace(/[  ]/g, " ");
 }
 
 const sim: Simulation = {
@@ -467,6 +476,46 @@ describe("large currency amounts (abbreviation)", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     await user.hover(screen.getByText(/Cash available/));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+});
+
+describe("large share quantities (abbreviation)", () => {
+  it("always lays the holding stats out 2x2, at every viewport width", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    const grid = screen.getByTestId("holding-stats-grid");
+    expect(grid).toHaveClass("grid-cols-2");
+    expect(grid.className).not.toMatch(/sm:grid-cols-4/);
+  });
+
+  it("abbreviates a Quantity of 1 billion shares or more, revealing the exact share count on hover", async () => {
+    const largeHolding: Position = { ...heldPosition, quantity: 2_500_000_000 };
+    mockLoadSuccess({ positions: { ...positionsResponse, positions: [largeHolding] } });
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    const quantityEl = screen.getByTestId("holding-quantity");
+    const abbreviated = quantityAbbreviated(largeHolding.quantity);
+    expect(quantityEl).toHaveTextContent(abbreviated);
+
+    await user.hover(within(quantityEl).getByText(abbreviated));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(quantityExact(largeHolding.quantity));
+  });
+
+  it("shows no tooltip for a Quantity under the 1 billion abbreviation threshold", async () => {
+    mockLoadSuccess();
+    vi.mocked(simulationApi.getAsset).mockResolvedValueOnce(assetDetail);
+    const user = userEvent.setup();
+    renderTrade(`/simulations/${sim.id}/trade?ticker=AAPL`);
+    await screen.findByRole("heading", { name: "Trade" });
+
+    await user.hover(screen.getByTestId("holding-quantity"));
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });
