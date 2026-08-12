@@ -12,7 +12,13 @@ import {
   type Simulation,
   type TickerSearchResult,
 } from "~/lib/api";
-import { abbreviateCurrency, abbreviateNumber, formatCurrency, formatCurrencyExact, formatNumberExact } from "~/lib/format";
+import {
+  abbreviateCurrency,
+  abbreviateNumber,
+  formatCurrency,
+  formatCurrencyExact,
+  formatNumberExact,
+} from "~/lib/format";
 import Trade from "./trade";
 
 vi.mock("~/lib/api", async (importOriginal) => {
