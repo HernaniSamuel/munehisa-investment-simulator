@@ -105,6 +105,10 @@ def fetch_asset(ticker: str) -> AssetResponse:
         base_currency=currency,
         start_date=hist_monthly.index[0].date(),
         monthly_data=monthly_data,
+        # yfinance's history() retroactively applies stock splits to every OHLC value it
+        # returns regardless of auto_adjust (that flag only controls dividend adjustment),
+        # so every close price here already reflects any split that has occurred.
+        prices_split_adjusted=True,
     )
 
 

@@ -25,6 +25,7 @@ class AssetResponse(BaseModel):
     base_currency: str
     start_date: date
     monthly_data: list[MonthlyDataPoint]
+    prices_split_adjusted: bool
 
 
 class AssetSearchResult(BaseModel):

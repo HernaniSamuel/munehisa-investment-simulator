@@ -36,4 +36,10 @@ public class AssetCatalog {
 
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
+
+    // Defaults to true (mirrors the column's DB default) so an entity built via the
+    // no-args constructor + setters, without touching this field, still reflects the
+    // same "split-adjusted" assumption a fresh DB row would have.
+    @Column(name = "prices_split_adjusted", nullable = false)
+    private boolean pricesSplitAdjusted = true;
 }

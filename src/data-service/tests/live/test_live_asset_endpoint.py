@@ -19,6 +19,7 @@ def test_fetch_asset_returns_real_data_for_known_ticker():
     assert result.name
     assert result.base_currency
     assert result.monthly_data
+    assert result.prices_split_adjusted is True
     first = result.monthly_data[0]
     assert first.open > 0
     assert first.high >= first.low

@@ -8,5 +8,6 @@ public record RawAssetSeries(
         String name,
         String baseCurrency,
         LocalDate startDate,
-        List<RawAssetMonthDataPoint> monthlyData
+        List<RawAssetMonthDataPoint> monthlyData,
+        boolean pricesSplitAdjusted
 ) {}

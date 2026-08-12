@@ -84,7 +84,7 @@ shape so both services are consistent for any client.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/assets/search?q=` | `X-API-Key` | Up to 15 tickers matching a partial symbol or company name, sourced from Yahoo Finance's public search endpoint; 5-minute in-memory cache |
-| `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance |
+| `GET` | `/assets/{ticker}` | `X-API-Key` | Monthly OHLCV history (+ dividends/splits) for a ticker, sourced from Yahoo Finance; `prices_split_adjusted` (always `true` here) tells the caller the OHLC values already reflect any stock split |
 | `GET` | `/exchange/{from_currency}/{to_currency}` | `X-API-Key` | Monthly OHLC exchange-rate history for a currency pair, sourced from Yahoo Finance |
 | `GET` | `/inflation/brl` | `X-API-Key` | Full monthly IPCA (Brazil's official inflation index) series, sourced from BCB's SGS series 433 |
 | `GET` | `/inflation/usd` | `X-API-Key` | Full monthly CPI-U (US Consumer Price Index for All Urban Consumers) series, sourced from FRED series CPIAUCSL |

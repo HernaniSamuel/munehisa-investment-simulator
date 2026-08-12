@@ -80,6 +80,7 @@ def test_fetch_asset_basic_shape(monkeypatch):
     assert result.name == "Fake Corp"
     assert result.base_currency == "USD"
     assert result.start_date == date(2024, 1, 1)
+    assert result.prices_split_adjusted is True
     assert len(result.monthly_data) == 1
 
     point = result.monthly_data[0]

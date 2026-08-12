@@ -55,7 +55,8 @@ class DataServiceAssetClientTest {
                           "monthly_data": [
                             {"date": "2024-01-01", "open": "180.00", "high": "190.00", "low": "175.00", "close": "185.00", "volume": 1000000, "dividends": null, "splits": null},
                             {"date": "2024-02-01", "open": "185.00", "high": "195.00", "low": "180.00", "close": "192.00", "volume": 1200000, "dividends": "0.24", "splits": null}
-                          ]
+                          ],
+                          "prices_split_adjusted": true
                         }
                         """, MediaType.APPLICATION_JSON));
 
@@ -65,6 +66,7 @@ class DataServiceAssetClientTest {
         assertEquals("Apple Inc.", series.name());
         assertEquals("USD", series.baseCurrency());
         assertEquals(LocalDate.of(1980, 12, 1), series.startDate());
+        assertTrue(series.pricesSplitAdjusted());
         assertEquals(2, series.monthlyData().size());
         assertEquals(YearMonth.of(2024, 1), series.monthlyData().get(0).month());
         assertEquals(new BigDecimal("180.00"), series.monthlyData().get(0).open());

@@ -89,7 +89,8 @@ class AssetCacheServiceConcurrencyTest extends SharedPostgresContainer {
                                     100L, null, null),
                             new RawAssetMonthDataPoint(YearMonth.of(2024, 2),
                                     new BigDecimal("11.00"), new BigDecimal("11.00"), new BigDecimal("11.00"), new BigDecimal("11.00"),
-                                    100L, null, null)));
+                                    100L, null, null)),
+                    true);
         });
 
         ExecutorService pool = Executors.newFixedThreadPool(2);

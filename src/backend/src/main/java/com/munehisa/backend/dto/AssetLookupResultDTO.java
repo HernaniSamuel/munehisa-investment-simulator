@@ -10,5 +10,6 @@ public record AssetLookupResultDTO(
         YearMonth requestedMonth,
         YearMonth returnedMonth,
         boolean truncated,
-        List<AssetMonthDataDTO> series
+        List<AssetMonthDataDTO> series,
+        boolean pricesSplitAdjusted
 ) {}

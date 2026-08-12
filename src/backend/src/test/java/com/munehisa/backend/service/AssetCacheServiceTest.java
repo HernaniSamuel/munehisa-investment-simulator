@@ -54,11 +54,17 @@ class AssetCacheServiceTest {
     }
 
     private AssetCatalog catalog(String ticker, String name, String baseCurrency, LocalDate startDate) {
+        return catalog(ticker, name, baseCurrency, startDate, true);
+    }
+
+    private AssetCatalog catalog(
+            String ticker, String name, String baseCurrency, LocalDate startDate, boolean pricesSplitAdjusted) {
         AssetCatalog catalog = new AssetCatalog();
         catalog.setTicker(ticker);
         catalog.setName(name);
         catalog.setBaseCurrency(baseCurrency);
         catalog.setStartDate(startDate);
+        catalog.setPricesSplitAdjusted(pricesSplitAdjusted);
         return catalog;
     }
 
@@ -97,7 +103,7 @@ class AssetCacheServiceTest {
         when(assetCatalogRepository.existsByTicker("AAPL")).thenReturn(false);
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
-                List.of(rawMonth(YearMonth.of(2024, 1), "180.00"), rawMonth(YearMonth.of(2024, 2), "185.00"))));
+                List.of(rawMonth(YearMonth.of(2024, 1), "180.00"), rawMonth(YearMonth.of(2024, 2), "185.00")), true));
         when(assetCatalogRepository.findByTicker("AAPL"))
                 .thenReturn(Optional.of(catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1))));
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
@@ -110,7 +116,8 @@ class AssetCacheServiceTest {
         AssetCacheService service = buildService();
         AssetLookupResultDTO result = service.getAssetSeries("aapl", YearMonth.of(2024, 2));
 
-        verify(assetCatalogRepository).upsert(any(UUID.class), eq("AAPL"), eq("Apple Inc."), eq("USD"), eq(LocalDate.of(2024, 1, 1)));
+        verify(assetCatalogRepository).upsert(
+                any(UUID.class), eq("AAPL"), eq("Apple Inc."), eq("USD"), eq(LocalDate.of(2024, 1, 1)), eq(true));
         verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 1), "180.00");
         verifyMonthlyUpsert("AAPL", YearMonth.of(2024, 2), "185.00");
         assertEquals("AAPL", result.ticker());
@@ -173,6 +180,22 @@ class AssetCacheServiceTest {
     }
 
     @Test
+    void lookup_pricesSplitAdjustedReflectsStoredCatalogValue() {
+        when(assetCatalogRepository.existsByTicker("AAPL")).thenReturn(true);
+        when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
+                .thenReturn(Optional.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+        when(assetCatalogRepository.findByTicker("AAPL"))
+                .thenReturn(Optional.of(catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1), false)));
+        when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 2)))
+                .thenReturn(List.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+
+        AssetCacheService service = buildService();
+        AssetLookupResultDTO result = service.getAssetSeries("AAPL", YearMonth.of(2024, 2));
+
+        assertFalse(result.pricesSplitAdjusted());
+    }
+
+    @Test
     void lookup_beforeStartDate_throwsAssetPredatesStartDateException() {
         when(assetCatalogRepository.existsByTicker("TSLA")).thenReturn(true);
         when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("TSLA"))
@@ -201,7 +224,7 @@ class AssetCacheServiceTest {
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
-                List.of(rawMonth(YearMonth.of(2024, 6), "200.00"))));
+                List.of(rawMonth(YearMonth.of(2024, 6), "200.00")), true));
         when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 6)))
                 .thenReturn(List.of(juneRow));
 
@@ -228,7 +251,7 @@ class AssetCacheServiceTest {
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
-                List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00"))));
+                List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00")), true));
         when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 7)))
                 .thenReturn(List.of(juneRow, julyRow));
 
@@ -275,7 +298,7 @@ class AssetCacheServiceTest {
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(aaplCatalog));
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1),
-                List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00"))));
+                List.of(rawMonth(YearMonth.of(2024, 6), "200.00"), rawMonth(YearMonth.of(2024, 7), "205.00")), true));
         when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 7)))
                 .thenReturn(List.of(staleJuneRow, julyRow));
 

@@ -239,7 +239,7 @@ class SimulationServiceTest {
         when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
 
         AssetLookupResultDTO lookup = new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of());
+                "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of(), true);
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(lookup);
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
@@ -261,7 +261,7 @@ class SimulationServiceTest {
         when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
 
         AssetLookupResultDTO lookup = new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of());
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of(), true);
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(lookup);
         when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
@@ -394,7 +394,7 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         // snapshotRepository.findBySimulationId(any()) already defaults to Optional.empty() (stubSnapshotWriteDefaults).
@@ -428,7 +428,7 @@ class SimulationServiceTest {
                 .thenReturn(List.of(snapshotPosition(snapshot.getId(), "MSFT", "Microsoft Corp.", 5, "200.00", "0.00")));
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
 
@@ -458,7 +458,7 @@ class SimulationServiceTest {
                 .thenReturn(List.of(snapshotPosition(snapshot.getId(), "AAPL", "Apple Inc.", 10, "500.00", "0.00")));
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
 
@@ -490,7 +490,7 @@ class SimulationServiceTest {
                 .thenReturn(List.of(snapshotPosition(snapshot.getId(), "AAPL", "Apple Inc.", 10, "500.00", "25.00")));
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
 
@@ -714,7 +714,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
@@ -757,7 +757,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "1.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "1.00")), true));
         // Check-only figure: converts the whole cash balance BRL -> USD.
         when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
@@ -806,7 +806,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "5.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "5.00")), true));
         // convertedCash = 1000.00 * 0.20 = 200.00 USD; cost = 5.00 * 100 = 500.00 USD > 200.00.
         when(exchangeRateCacheService.getExchangeRate("BRL", "USD", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "USD", simulation.getCurrentMonth(), new BigDecimal("0.20")));
@@ -869,7 +869,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "50.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
@@ -901,10 +901,10 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00")), true));
         when(assetCacheService.getAssetSeries("MSFT", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "MSFT", "Microsoft Corp.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
@@ -994,7 +994,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1030,7 +1030,7 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1068,10 +1068,10 @@ class SimulationServiceTest {
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "30.00")), true));
         when(assetCacheService.getAssetSeries("MSFT", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
                 "MSFT", "Microsoft Corp.", "BRL", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false,
-                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00"))));
+                List.of(assetMonthData(simulation.getCurrentMonth(), "20.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", simulation.getCurrentMonth()))
                 .thenReturn(exchangeRate("BRL", "BRL", simulation.getCurrentMonth(), BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1161,7 +1161,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1192,7 +1192,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "USD", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "2.00"))));
+                "AAPL", "Apple Inc.", "USD", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "2.00")), true));
         when(exchangeRateCacheService.getExchangeRate("USD", "BRL", newMonth))
                 .thenReturn(exchangeRate("USD", "BRL", newMonth, new BigDecimal("5.00")));
 
@@ -1216,7 +1216,7 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "USD")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "USD", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "2.00", "0.10"))));
+                List.of(assetMonthData(newMonth, "2.00", "0.10")), true));
         when(exchangeRateCacheService.getExchangeRate("USD", "BRL", newMonth))
                 .thenReturn(exchangeRate("USD", "BRL", newMonth, new BigDecimal("5.00")));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1249,7 +1249,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00", "0.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "55.00", "0.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1276,7 +1276,7 @@ class SimulationServiceTest {
         BigDecimal close = new BigDecimal("55.00");
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null))));
+                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null)), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1304,10 +1304,10 @@ class SimulationServiceTest {
         // AAPL's cache is fresh through the new month; MSFT's cache had to truncate (fell back
         // to the latest cached month, 2024-06) - independently flagged per position.
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00")), true));
         when(assetCacheService.getAssetSeries("MSFT", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "MSFT", "Microsoft Corp.", "BRL", newMonth, YearMonth.of(2024, 6), true,
-                List.of(assetMonthData(YearMonth.of(2024, 6), "20.00"))));
+                List.of(assetMonthData(YearMonth.of(2024, 6), "20.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1334,9 +1334,9 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00")), true));
         when(assetCacheService.getAssetSeries("MSFT", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "MSFT", "Microsoft Corp.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "20.00"))));
+                "MSFT", "Microsoft Corp.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "20.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1369,7 +1369,7 @@ class SimulationServiceTest {
         // failure/catch is internal to AssetCacheService and out of SimulationService's reach.
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, YearMonth.of(2024, 6), true,
-                List.of(assetMonthData(YearMonth.of(2024, 6), "40.00"))));
+                List.of(assetMonthData(YearMonth.of(2024, 6), "40.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1395,7 +1395,7 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(aaplAssetId)).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCatalogRepository.findById(msftAssetId)).thenReturn(Optional.of(assetCatalog(msftAssetId, "MSFT", "Microsoft Corp.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00", "0.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "30.00", "0.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
         // Simulates an unrecoverable failure partway through the position loop (the second
@@ -1421,9 +1421,11 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         // 4-for-1 forward split: 10 shares * 4 = 40, always a whole number, no cash-in-lieu.
+        // pricesSplitAdjusted=false: the source's prices aren't split-adjusted, so
+        // advanceMonth's own manual quantity adjustment is expected to run (#58 behavior).
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "55.00", "0.00", "4"))));
+                List.of(assetMonthData(newMonth, "55.00", "0.00", "4")), false));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1450,9 +1452,11 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         // 1-for-10 reverse split: 23 shares * 0.1 = 2.3, floored to 2, remainder 0.3.
         // costBasisRemoved = 2300.00 * 0.3 / 2.3 = 300.00; cashInLieu = 0.3 * 10.00 = 3.00.
+        // pricesSplitAdjusted=false: the source's prices aren't split-adjusted, so
+        // advanceMonth's own manual quantity adjustment is expected to run (#58 behavior).
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1"))));
+                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1")), false));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1487,9 +1491,11 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         // 3 * 0.05 = 0.15, floored to 0 - the whole position is cashed out via cash-in-lieu.
+        // pricesSplitAdjusted=false: the source's prices aren't split-adjusted, so
+        // advanceMonth's own manual quantity adjustment is expected to run (#58 behavior).
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "100.00", "0.00", "0.05"))));
+                List.of(assetMonthData(newMonth, "100.00", "0.00", "0.05")), false));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1531,9 +1537,11 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         // 1-for-10 reverse split dividing evenly: 20 * 0.1 = 2.0 exactly, no fractional remainder.
+        // pricesSplitAdjusted=false: the source's prices aren't split-adjusted, so
+        // advanceMonth's own manual quantity adjustment is expected to run (#58 behavior).
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1"))));
+                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1")), false));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1560,9 +1568,11 @@ class SimulationServiceTest {
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         // dividendInBase = 0.10/share * 23 shares (pre-split) = 2.30. Split as in the
         // remainder test above: 23 * 0.1 = 2.3, floored to 2, remainder 0.3, cashInLieu = 3.00.
+        // pricesSplitAdjusted=false: the source's prices aren't split-adjusted, so
+        // advanceMonth's own manual quantity adjustment is expected to run (#58 behavior).
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(assetMonthData(newMonth, "10.00", "0.10", "0.1"))));
+                List.of(assetMonthData(newMonth, "10.00", "0.10", "0.1")), false));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1601,7 +1611,7 @@ class SimulationServiceTest {
         BigDecimal close = new BigDecimal("55.00");
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
                 "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
-                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null))));
+                List.of(new AssetMonthDataDTO(newMonth, close, close, close, close, 0, null, null)), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1611,6 +1621,101 @@ class SimulationServiceTest {
         assertEquals(10, response.positions().get(0).quantity());
         assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
         assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    // --- advanceMonth: pricesSplitAdjusted=true (issue #127) -----------------------------
+
+    @Test
+    void advanceMonth_forwardSplit_pricesAlreadySplitAdjusted_leavesPositionUnchanged() {
+        // TSLA's real August 2020 5:1 split, as described in #127: the data-service's price
+        // already reflects the split (unchanged month-over-month here), so a reported split
+        // must be a no-op for the position - no quantity multiplication, no transaction.
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 10, "1.0", "500.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "TSLA", "Tesla Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("TSLA", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "TSLA", "Tesla Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "55.00", "0.00", "5")), true));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(10, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("550.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        assertEquals(10, position.getQuantity());
+        assertEquals(0, new BigDecimal("500.00").compareTo(position.getCostBasis()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_reverseSplitWithRemainder_pricesAlreadySplitAdjusted_leavesPositionUnchanged() {
+        // Same 1-for-10 reverse split as advanceMonth_reverseSplitWithRemainder_..., but with
+        // pricesSplitAdjusted=true: no floor, no cash-in-lieu, no cost-basis reduction, no SELL.
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 23, "1.0", "2300.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "10.00", "0.00", "0.1")), true));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(23, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("2300.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("230.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        assertEquals(23, position.getQuantity());
+        assertEquals(0, new BigDecimal("2300.00").compareTo(position.getCostBasis()));
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void advanceMonth_reverseSplitWouldFloorToZero_pricesAlreadySplitAdjusted_positionSurvivesUnevicted() {
+        // Same worked example as advanceMonth_reverseSplitFloorsToZero_..., but with
+        // pricesSplitAdjusted=true: the position must NOT be deleted or evicted, since the
+        // split is a no-op rather than a forced full liquidation.
+        User user = user();
+        Simulation simulation = simulation(user.getId());
+        UUID assetId = UUID.randomUUID();
+        Position position = position(simulation.getId(), assetId, 3, "1.0", "300.00", "0.00");
+        YearMonth newMonth = YearMonth.of(2024, 7);
+        when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
+        when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
+        when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false,
+                List.of(assetMonthData(newMonth, "100.00", "0.00", "0.05")), true));
+        when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
+                .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
+
+        AdvanceMonthResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
+                .advanceMonth(simulation.getId(), user);
+
+        assertEquals(1, response.positions().size());
+        assertEquals(3, response.positions().get(0).quantity());
+        assertEquals(0, new BigDecimal("300.00").compareTo(response.positions().get(0).costBasis()));
+        assertEquals(0, new BigDecimal("300.00").compareTo(response.totalAssetValue()));
+        assertEquals(0, new BigDecimal("1000.00").compareTo(response.cashBalance()));
+        verify(positionRepository, never()).delete(any(Position.class));
+        verify(assetCacheService, never()).evictIfOrphaned(any(UUID.class));
         verify(transactionRepository, never()).save(any());
     }
 
@@ -1625,7 +1730,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
 
@@ -1658,7 +1763,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(position));
         when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.", "BRL")));
         when(assetCacheService.getAssetSeries("AAPL", newMonth)).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00"))));
+                "AAPL", "Apple Inc.", "BRL", newMonth, newMonth, false, List.of(assetMonthData(newMonth, "60.00")), true));
         when(exchangeRateCacheService.getExchangeRate("BRL", "BRL", newMonth))
                 .thenReturn(exchangeRate("BRL", "BRL", newMonth, BigDecimal.ONE));
         // Simulates an unrecoverable failure in the snapshot step itself, after the reprice
@@ -1816,7 +1921,7 @@ class SimulationServiceTest {
 
         UUID aaplAssetId = UUID.randomUUID();
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of()));
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of(), true));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(aaplAssetId, "AAPL", "Apple Inc.")));
 
         Transaction depositThisMonth = transaction(simulation.getId(), TransactionType.DEPOSIT, simulation.getCurrentMonth());
@@ -1874,7 +1979,7 @@ class SimulationServiceTest {
         when(positionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of(existingPosition));
 
         when(assetCacheService.getAssetSeries("AAPL", simulation.getCurrentMonth())).thenReturn(new AssetLookupResultDTO(
-                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of()));
+                "AAPL", "Apple Inc.", "USD", simulation.getCurrentMonth(), simulation.getCurrentMonth(), false, List.of(), true));
         when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(assetCatalog(assetId, "AAPL", "Apple Inc.")));
         when(transactionRepository.findBySimulationId(simulation.getId())).thenReturn(List.of());
 
