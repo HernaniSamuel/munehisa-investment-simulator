@@ -59,7 +59,8 @@ public class AssetCacheService {
                 .toList();
 
         return new AssetLookupResultDTO(
-                ticker, catalog.getName(), catalog.getBaseCurrency(), targetMonth, effectiveMonth, truncated, series);
+                ticker, catalog.getName(), catalog.getBaseCurrency(), targetMonth, effectiveMonth, truncated, series,
+                catalog.isPricesSplitAdjusted());
     }
 
     // Assumes assetId already exists in asset_catalog (the only route into `position` is via
@@ -111,7 +112,8 @@ public class AssetCacheService {
     }
 
     private void upsertCatalog(String ticker, RawAssetSeries raw) {
-        assetCatalogRepository.upsert(UUID.randomUUID(), ticker, raw.name(), raw.baseCurrency(), raw.startDate());
+        assetCatalogRepository.upsert(
+                UUID.randomUUID(), ticker, raw.name(), raw.baseCurrency(), raw.startDate(), raw.pricesSplitAdjusted());
     }
 
     private void upsertMonthlySeries(String ticker, List<RawAssetMonthDataPoint> raw) {

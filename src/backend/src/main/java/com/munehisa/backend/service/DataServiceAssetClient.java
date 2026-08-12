@@ -61,7 +61,8 @@ public class DataServiceAssetClient {
                             .map(point -> new RawAssetMonthDataPoint(
                                     YearMonth.from(point.date()), point.open(), point.high(), point.low(),
                                     point.close(), point.volume(), point.dividends(), point.splits()))
-                            .toList());
+                            .toList(),
+                    response.pricesSplitAdjusted());
         } catch (HttpClientErrorException.NotFound exception) {
             throw new AssetNotFoundException(ticker, exception);
         } catch (RestClientException exception) {

@@ -2,6 +2,7 @@ package com.munehisa.backend.repository;
 
 import com.munehisa.backend.domain.asset.AssetCatalog;
 import com.munehisa.backend.testsupport.SharedPostgresContainer;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,6 +23,9 @@ class AssetCatalogRepositoryTest extends SharedPostgresContainer {
 
     @Autowired
     private AssetCatalogRepository assetCatalogRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private AssetCatalog persist(String ticker, String name, String baseCurrency, LocalDate startDate) {
         AssetCatalog catalog = new AssetCatalog();
@@ -64,5 +69,30 @@ class AssetCatalogRepositoryTest extends SharedPostgresContainer {
 
         assertThrows(DataIntegrityViolationException.class, () ->
                 persist("AAPL", "Apple Inc. (renamed)", "USD", LocalDate.of(1980, 12, 1)));
+    }
+
+    @Test
+    void persist_defaultsPricesSplitAdjustedToTrue() {
+        persist("AAPL", "Apple Inc.", "USD", LocalDate.of(1980, 12, 1));
+
+        assertTrue(assetCatalogRepository.findByTicker("AAPL").orElseThrow().isPricesSplitAdjusted());
+    }
+
+    @Test
+    void upsert_insertsThenRefreshesPricesSplitAdjustedOnConflict() {
+        assetCatalogRepository.upsert(
+                UUID.randomUUID(), "AAPL", "Apple Inc.", "USD", LocalDate.of(1980, 12, 1), true);
+
+        assertTrue(assetCatalogRepository.findByTicker("AAPL").orElseThrow().isPricesSplitAdjusted());
+
+        // The native upsert() bypasses the persistence context, so the entity loaded by the
+        // findByTicker() above is now stale in Hibernate's first-level cache - clear it so the
+        // next findByTicker() below actually re-reads the row this second upsert() just wrote,
+        // instead of returning the still-managed (and now wrong) instance from above.
+        entityManager.clear();
+        assetCatalogRepository.upsert(
+                UUID.randomUUID(), "AAPL", "Apple Inc.", "USD", LocalDate.of(1980, 12, 1), false);
+
+        assertFalse(assetCatalogRepository.findByTicker("AAPL").orElseThrow().isPricesSplitAdjusted());
     }
 }

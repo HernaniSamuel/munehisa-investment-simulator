@@ -10,5 +10,6 @@ public record AssetSeriesResponse(
         String name,
         @JsonProperty("base_currency") String baseCurrency,
         @JsonProperty("start_date") LocalDate startDate,
-        @JsonProperty("monthly_data") List<AssetMonthlyDataPoint> monthlyData
+        @JsonProperty("monthly_data") List<AssetMonthlyDataPoint> monthlyData,
+        @JsonProperty("prices_split_adjusted") boolean pricesSplitAdjusted
 ) {}

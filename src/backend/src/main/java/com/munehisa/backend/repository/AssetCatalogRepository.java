@@ -23,17 +23,19 @@ public interface AssetCatalogRepository extends JpaRepository<AssetCatalog, UUID
     @Modifying
     @Transactional
     @Query(value = """
-            INSERT INTO asset_catalog (id, ticker, name, base_currency, start_date)
-            VALUES (:id, :ticker, :name, :baseCurrency, :startDate)
+            INSERT INTO asset_catalog (id, ticker, name, base_currency, start_date, prices_split_adjusted)
+            VALUES (:id, :ticker, :name, :baseCurrency, :startDate, :pricesSplitAdjusted)
             ON CONFLICT (ticker) DO UPDATE SET
                 name = EXCLUDED.name,
                 base_currency = EXCLUDED.base_currency,
-                start_date = EXCLUDED.start_date
+                start_date = EXCLUDED.start_date,
+                prices_split_adjusted = EXCLUDED.prices_split_adjusted
             """, nativeQuery = true)
     void upsert(
             @Param("id") UUID id,
             @Param("ticker") String ticker,
             @Param("name") String name,
             @Param("baseCurrency") String baseCurrency,
-            @Param("startDate") LocalDate startDate);
+            @Param("startDate") LocalDate startDate,
+            @Param("pricesSplitAdjusted") boolean pricesSplitAdjusted);
 }
