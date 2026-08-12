@@ -28,6 +28,7 @@ _SAMPLE_ASSET = AssetResponse(
             volume=1000,
         )
     ],
+    prices_split_adjusted=True,
 )
 
 
