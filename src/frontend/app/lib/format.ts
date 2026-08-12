@@ -34,22 +34,17 @@ const BUCKETS: { divisor: number; suffixKey: "billion" | "trillion" }[] = [
   { divisor: TRILLION, suffixKey: "trillion" },
 ];
 
-function formatScaled(amount: number, divisor: number, locale: string | undefined, currency: string): string {
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount / divisor);
-}
-
-// Generic core shared by formatCurrency (BRL|USD) and trade.tsx's
-// formatAssetCurrency (arbitrary asset currency, browser-default locale) -
-// see the "formatAssetCurrency's suffix language" judgment call for why the
-// pt-prefix check above is locale-string-driven rather than a BRL/USD table.
-export function abbreviateCurrency(amount: number, locale: string | undefined, currency: string): string {
-  if (Math.abs(amount) < BILLION) return formatCurrencyPlain(amount, locale, currency);
-
+// Shared bucket-selection/rounding-escalation core behind abbreviateCurrency
+// and abbreviateNumber. `format` performs the one Intl.NumberFormat call
+// that differs between them (currency-styled vs plain); everything else -
+// which bucket, when to round-escalate (see the comment this replaces,
+// originally added for #114), when to fall back to scientific notation -
+// lives here once.
+function abbreviateWithBuckets(
+  amount: number,
+  locale: string | undefined,
+  format: (value: number, notation?: "scientific") => string,
+): string {
   for (const { divisor, suffixKey } of BUCKETS) {
     // Round first, then check whether the *rounded* number still reads as
     // under 1000 in this bucket's unit. A raw magnitude like 999.9995
@@ -60,19 +55,31 @@ export function abbreviateCurrency(amount: number, locale: string | undefined, c
     // escalates to the next bucket whenever rounding crosses the boundary.
     const rounded = Math.round((Math.abs(amount) / divisor) * 100) / 100;
     if (rounded < 1000) {
-      return formatScaled(amount, divisor, locale, currency) + abbreviationSuffixes(locale)[suffixKey];
+      return format(amount / divisor) + abbreviationSuffixes(locale)[suffixKey];
     }
   }
 
   // Rounds to >= 1000 even in the largest (trillion) bucket, i.e. >= 1
   // quadrillion once rounded - the scientific-notation fallback.
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
-    notation: "scientific",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return format(amount, "scientific");
+}
+
+// Generic core shared by formatCurrency (BRL|USD) and trade.tsx's
+// formatAssetCurrency (arbitrary asset currency, browser-default locale) -
+// see the "formatAssetCurrency's suffix language" judgment call for why the
+// pt-prefix check above is locale-string-driven rather than a BRL/USD table.
+export function abbreviateCurrency(amount: number, locale: string | undefined, currency: string): string {
+  if (Math.abs(amount) < BILLION) return formatCurrencyPlain(amount, locale, currency);
+
+  return abbreviateWithBuckets(amount, locale, (value, notation) =>
+    new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      notation,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value),
+  );
 }
 
 export function formatCurrency(amount: number, baseCurrency: "BRL" | "USD"): string {
@@ -83,6 +90,34 @@ export function formatCurrency(amount: number, baseCurrency: "BRL" | "USD"): str
 // next to formatCurrency's (possibly abbreviated) display string.
 export function formatCurrencyExact(amount: number, baseCurrency: "BRL" | "USD"): string {
   return formatCurrencyPlain(amount, CURRENCY_LOCALES[baseCurrency], baseCurrency);
+}
+
+// Number-only equivalent of isAbbreviatedCurrency, for values (like a share
+// quantity) that have magnitude but no currency of their own.
+export function isAbbreviatedNumber(amount: number): boolean {
+  return Math.abs(amount) >= BILLION;
+}
+
+// Always the full, unabbreviated grouped-integer string - what a Tooltip
+// shows for an abbreviated value, and also what abbreviateNumber itself
+// returns below the threshold (mirrors formatCurrencyPlain's dual role,
+// minus the currency styling a plain number doesn't have).
+export function formatNumberExact(amount: number, locale: string | undefined): string {
+  return new Intl.NumberFormat(locale).format(amount);
+}
+
+// Number-only equivalent of abbreviateCurrency, sharing the same bi/tri/
+// scientific-notation bucketing via abbreviateWithBuckets.
+export function abbreviateNumber(amount: number, locale: string | undefined): string {
+  if (Math.abs(amount) < BILLION) return formatNumberExact(amount, locale);
+
+  return abbreviateWithBuckets(amount, locale, (value, notation) =>
+    new Intl.NumberFormat(locale, {
+      notation,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value),
+  );
 }
 
 // fraction is a plain ratio (0.05 = 5%), matching the backend's weight/

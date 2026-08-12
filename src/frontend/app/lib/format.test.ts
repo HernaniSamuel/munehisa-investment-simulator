@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   abbreviateCurrency,
+  abbreviateNumber,
   formatCurrency,
   formatCurrencyExact,
   formatCurrencyPlain,
   formatMonthYear,
+  formatNumberExact,
   formatPercent,
   isAbbreviatedCurrency,
+  isAbbreviatedNumber,
   truncateName,
 } from "./format";
 
@@ -132,6 +135,106 @@ describe("abbreviateCurrency / formatCurrencyPlain (generic core)", () => {
 
   it("formatCurrencyPlain never abbreviates, regardless of magnitude", () => {
     expect(normalizeSpaces(formatCurrencyPlain(1_234_567_890, "en-US", "USD"))).toBe("$1,234,567,890.00");
+  });
+});
+
+describe("abbreviateNumber", () => {
+  it("formats with pt-BR grouping/decimal conventions", () => {
+    expect(normalizeSpaces(abbreviateNumber(722000, "pt-BR"))).toBe("722.000");
+  });
+
+  it("formats with en-US grouping/decimal conventions", () => {
+    expect(normalizeSpaces(abbreviateNumber(722000, "en-US"))).toBe("722,000");
+  });
+
+  it("formats zero", () => {
+    expect(normalizeSpaces(abbreviateNumber(0, "en-US"))).toBe("0");
+  });
+
+  it("leaves a value just under 1 billion unabbreviated", () => {
+    expect(normalizeSpaces(abbreviateNumber(999999999, "pt-BR"))).toBe("999.999.999");
+    expect(normalizeSpaces(abbreviateNumber(999999999, "en-US"))).toBe("999,999,999");
+  });
+
+  it("abbreviates exactly 1 billion with a bi/B suffix", () => {
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000, "pt-BR"))).toBe("1,00 bi");
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000, "en-US"))).toBe("1.00B");
+  });
+
+  it("abbreviates a mid-range billion value, rounded to 2 decimals", () => {
+    expect(normalizeSpaces(abbreviateNumber(1_234_567_890, "pt-BR"))).toBe("1,23 bi");
+    expect(normalizeSpaces(abbreviateNumber(1_234_567_890, "en-US"))).toBe("1.23B");
+  });
+
+  it("stays bi/B-suffixed just under 1 trillion", () => {
+    expect(normalizeSpaces(abbreviateNumber(999_000_000_000, "pt-BR"))).toBe("999,00 bi");
+    expect(normalizeSpaces(abbreviateNumber(999_000_000_000, "en-US"))).toBe("999.00B");
+  });
+
+  it("abbreviates exactly 1 trillion with a tri/T suffix", () => {
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000_000, "pt-BR"))).toBe("1,00 tri");
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000_000, "en-US"))).toBe("1.00T");
+  });
+
+  it("abbreviates a mid-range trillion value, rounded to 2 decimals", () => {
+    expect(normalizeSpaces(abbreviateNumber(2_500_000_000_000, "pt-BR"))).toBe("2,50 tri");
+    expect(normalizeSpaces(abbreviateNumber(2_500_000_000_000, "en-US"))).toBe("2.50T");
+  });
+
+  it("stays tri/T-suffixed just under 1 quadrillion", () => {
+    expect(normalizeSpaces(abbreviateNumber(999_000_000_000_000, "pt-BR"))).toBe("999,00 tri");
+    expect(normalizeSpaces(abbreviateNumber(999_000_000_000_000, "en-US"))).toBe("999.00T");
+  });
+
+  it("falls back to scientific notation at exactly 1 quadrillion", () => {
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000_000_000, "pt-BR"))).toBe("1,00E15");
+    expect(normalizeSpaces(abbreviateNumber(1_000_000_000_000_000, "en-US"))).toBe("1.00E15");
+  });
+
+  it("renders a very large value in scientific notation", () => {
+    expect(normalizeSpaces(abbreviateNumber(2.5e18, "en-US"))).toBe("2.50E18");
+  });
+
+  it("preserves the sign, without doubling it, for negative abbreviated values", () => {
+    expect(normalizeSpaces(abbreviateNumber(-1_234_567_890, "en-US"))).toBe("-1.23B");
+    expect(normalizeSpaces(abbreviateNumber(-2_500_000_000_000, "pt-BR"))).toBe("-2,50 tri");
+    expect(normalizeSpaces(abbreviateNumber(-2.5e18, "en-US"))).toBe("-2.50E18");
+  });
+
+  it("escalates to the tri/T suffix when rounding a near-1-trillion billion value crosses the boundary", () => {
+    // Same rounding-escalation case as abbreviateCurrency (see #114): the
+    // bucket must be picked from the rounded value, not the pre-rounding
+    // magnitude.
+    expect(normalizeSpaces(abbreviateNumber(999_999_500_000, "pt-BR"))).toBe("1,00 tri");
+    expect(normalizeSpaces(abbreviateNumber(999_999_500_000, "en-US"))).toBe("1.00T");
+    expect(normalizeSpaces(abbreviateNumber(-999_999_500_000, "en-US"))).toBe("-1.00T");
+  });
+
+  it("escalates to scientific notation when rounding a near-1-quadrillion trillion value crosses the boundary", () => {
+    expect(normalizeSpaces(abbreviateNumber(999_999_500_000_000, "pt-BR"))).toBe("1,00E15");
+    expect(normalizeSpaces(abbreviateNumber(999_999_500_000_000, "en-US"))).toBe("1.00E15");
+  });
+});
+
+describe("isAbbreviatedNumber", () => {
+  it("is false just under the 1 billion threshold", () => {
+    expect(isAbbreviatedNumber(999999999)).toBe(false);
+  });
+
+  it("is true at exactly 1 billion", () => {
+    expect(isAbbreviatedNumber(1_000_000_000)).toBe(true);
+  });
+
+  it("compares by magnitude, so a large negative amount is also abbreviated", () => {
+    expect(isAbbreviatedNumber(-1_000_000_000)).toBe(true);
+    expect(isAbbreviatedNumber(-999999999)).toBe(false);
+  });
+});
+
+describe("formatNumberExact", () => {
+  it("always returns full precision, even for an amount abbreviateNumber would abbreviate", () => {
+    expect(normalizeSpaces(formatNumberExact(1_234_567_890, "en-US"))).toBe("1,234,567,890");
+    expect(normalizeSpaces(formatNumberExact(1_234_567_890, "pt-BR"))).toBe("1.234.567.890");
   });
 });
 

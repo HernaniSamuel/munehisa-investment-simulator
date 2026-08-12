@@ -18,11 +18,14 @@ import {
 } from "~/lib/api";
 import {
   abbreviateCurrency,
+  abbreviateNumber,
   formatCurrency,
   formatCurrencyExact,
   formatCurrencyPlain,
+  formatNumberExact,
   formatPercent,
   isAbbreviatedCurrency,
+  isAbbreviatedNumber,
 } from "~/lib/format";
 import { FinancialChart, sumiTheme, zankyoTheme, type Bar } from "~/lib/chart";
 
@@ -514,8 +517,17 @@ function AssetInfoCard({
         </div>
         <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{asset.currency}</p>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <HoldingStat testId="holding-quantity" label="Quantity" value={String(holding?.quantity ?? 0)} />
+      <div className="mt-4 grid grid-cols-2 gap-4" data-testid="holding-stats-grid">
+        <HoldingStat
+          testId="holding-quantity"
+          label="Quantity"
+          value={
+            <CurrencyValue
+              abbreviated={abbreviateNumber(holding?.quantity ?? 0, undefined)}
+              exact={isAbbreviatedNumber(holding?.quantity ?? 0) ? formatNumberExact(holding?.quantity ?? 0, undefined) : null}
+            />
+          }
+        />
         <HoldingStat
           testId="holding-market-value"
           label="Market value"
