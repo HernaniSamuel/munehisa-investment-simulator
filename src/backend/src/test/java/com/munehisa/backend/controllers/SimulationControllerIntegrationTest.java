@@ -220,7 +220,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     private RawAssetSeries rawAssetSeries(String ticker, String name) {
         return new RawAssetSeries(ticker, name, "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 1), new BigDecimal("180.00"), new BigDecimal("180.00"),
-                        new BigDecimal("180.00"), new BigDecimal("180.00"), 1_000_000L, null, null)));
+                        new BigDecimal("180.00"), new BigDecimal("180.00"), 1_000_000L, null, null)), true);
     }
 
     // --- create -----------------------------------------------------------------------
@@ -649,7 +649,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("10.50"), new BigDecimal("10.50"),
-                        new BigDecimal("10.50"), new BigDecimal("10.50"), 1_000_000L, null, null))));
+                        new BigDecimal("10.50"), new BigDecimal("10.50"), 1_000_000L, null, null)), true));
 
         mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
                         .header("Authorization", "Bearer " + token))
@@ -1752,7 +1752,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null)), true));
 
         MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
                         .header("Authorization", "Bearer " + token))
@@ -1800,7 +1800,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("2.00"), new BigDecimal("2.00"),
-                        new BigDecimal("2.00"), new BigDecimal("2.00"), 1_000_000L, new BigDecimal("0.10"), null))));
+                        new BigDecimal("2.00"), new BigDecimal("2.00"), 1_000_000L, new BigDecimal("0.10"), null)), true));
         when(dataServiceExchangeRateClient.fetchSeries("BRL", "USD")).thenReturn(
                 List.of(new RawExchangeMonthDataPoint(simulation.getCurrentMonth(),
                         new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"), new BigDecimal("0.20"))));
@@ -1851,11 +1851,11 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null)), true));
         when(dataServiceAssetClient.fetchSeries("MSFT")).thenReturn(new RawAssetSeries(
                 "MSFT", "Microsoft Corp.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 1), new BigDecimal("180.00"), new BigDecimal("180.00"),
-                        new BigDecimal("180.00"), new BigDecimal("180.00"), 1_000_000L, null, null))));
+                        new BigDecimal("180.00"), new BigDecimal("180.00"), 1_000_000L, null, null)), true));
 
         MvcResult result = mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
                         .header("Authorization", "Bearer " + token))
@@ -1908,7 +1908,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null)), true));
         // An unexpected failure type (not one AssetCacheService's refresh catch clause handles)
         // simulates an unrecoverable mid-loop error on the second position, to prove the whole
         // advance - including AAPL's already-processed reprice above - is rolled back, not
@@ -1982,7 +1982,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), null)), true));
 
         mockMvc.perform(post("/simulations/{id}/advance", simulation.getId())
                         .header("Authorization", "Bearer " + token))
@@ -2018,7 +2018,8 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         when(dataServiceAssetClient.fetchSeries("AAPL")).thenReturn(new RawAssetSeries(
                 "AAPL", "Apple Inc.", "USD", LocalDate.of(2000, 1, 1),
                 List.of(new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
-                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), new BigDecimal("2")))));
+                        new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, new BigDecimal("2.00"), new BigDecimal("2"))),
+                false));
         // Simulates an unrecoverable failure in the snapshot step itself, after reprice,
         // dividend, and split handling have all already run - proves the shared
         // @Transactional boundary rolls back everything, not just the snapshot write.
@@ -2064,7 +2065,8 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
                         new RawAssetMonthDataPoint(YearMonth.of(2024, 2), new BigDecimal("200.00"), new BigDecimal("200.00"),
                                 new BigDecimal("200.00"), new BigDecimal("200.00"), 1_000_000L, null, null),
                         new RawAssetMonthDataPoint(YearMonth.of(2024, 3), new BigDecimal("220.00"), new BigDecimal("220.00"),
-                                new BigDecimal("220.00"), new BigDecimal("220.00"), 1_000_000L, new BigDecimal("2.00"), null))));
+                                new BigDecimal("220.00"), new BigDecimal("220.00"), 1_000_000L, new BigDecimal("2.00"), null)),
+                true));
 
         // Advance 1: month 1 -> 2. Snapshot now reflects month 2's opening state
         // (cash 1000.00, totalAssetValue 1000.00) - about to be overwritten below.

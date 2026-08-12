@@ -440,11 +440,12 @@ public class SimulationService {
             // reported "no split" value) is only ever used as a gate here, never as a
             // multiplier, so it can't be mistaken for a real split factor.
             BigDecimal splitFactor = currentRow.splits() == null ? BigDecimal.ZERO : currentRow.splits();
-            if (splitFactor.signum() != 0) {
-                // Prices aren't split-adjusted, only held quantity is - forward and reverse
-                // splits both just multiply by the factor; whether that produces a fractional
-                // remainder (always for a reverse split, never for a clean forward split) is
-                // what decides whether cash-in-lieu applies, not the direction itself.
+            // A reported split only needs a manual quantity adjustment when the source's
+            // prices aren't already split-adjusted. When they are (e.g. the yfinance-backed
+            // data-service, which retroactively bakes every split into its OHLC history), the
+            // price itself already reflects the split, so multiplying quantity too would
+            // double-apply it - the split is a no-op for the position in that case.
+            if (splitFactor.signum() != 0 && !lookup.pricesSplitAdjusted()) {
                 BigDecimal preFloorQuantity = splitFactor.multiply(BigDecimal.valueOf(position.getQuantity()), MATH_CONTEXT);
                 BigDecimal flooredQuantityDecimal = preFloorQuantity.setScale(0, RoundingMode.FLOOR);
                 long flooredQuantity = flooredQuantityDecimal.longValueExact();
