@@ -59,5 +59,19 @@ services:
       data-service:
         condition: service_healthy
 
+  k6:
+    image: grafana/k6:latest
+    container_name: k6
+    profiles: ["load-test"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      K6_BASE_URL: http://backend:8000
+    volumes:
+      - ./src/backend/load-tests:/scripts:ro
+    working_dir: /scripts
+    command: ["run", "main.js"]
+
 volumes:
   postgres_data:
