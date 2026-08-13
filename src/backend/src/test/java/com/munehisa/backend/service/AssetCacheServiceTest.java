@@ -500,6 +500,25 @@ class AssetCacheServiceTest {
         verify(assetCatalogRepository, never()).delete(any(AssetCatalog.class));
     }
 
+    // AC7: a row still within the grace period is kept. The actual date-boundary filtering is
+    // delegated entirely to findByOrphanedSinceBefore's SQL "<" comparison - proven against real
+    // Postgres in AssetCatalogRepositoryTest#findByOrphanedSinceBefore_excludesNullAndReturnsOnlyRowsBeforeCutoff
+    // - so a within-grace-period row is simulated here by the mock never returning it for the
+    // cutoff the service computes, and this test asserts cleanupOrphanedAssets() leaves such
+    // "invisible" rows completely untouched (no delete, no position re-check).
+    @Test
+    void cleanup_keepsRowsStillWithinGracePeriod() {
+        Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
+        Instant expectedCutoff = clock.instant().minus(DEFAULT_GRACE_PERIOD_DAYS, ChronoUnit.DAYS);
+        when(assetCatalogRepository.findByOrphanedSinceBefore(expectedCutoff)).thenReturn(List.of());
+
+        AssetCacheService service = buildService(clock, DEFAULT_GRACE_PERIOD_DAYS);
+        service.cleanupOrphanedAssets();
+
+        verify(assetCatalogRepository, never()).delete(any(AssetCatalog.class));
+        verify(positionRepository, never()).existsByAssetId(any(UUID.class));
+    }
+
     @Test
     void cleanup_usesConfiguredGracePeriodDaysAsCutoff() {
         Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
