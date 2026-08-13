@@ -14,6 +14,7 @@ dependencies = [
     "python-dateutil==2.9.0.post0",
     "python-bcb==0.4.0",
     "requests==2.34.2",
+    "python-json-logger==4.1.0",
 ]
 
 [project.optional-dependencies]

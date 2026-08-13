@@ -57,6 +57,28 @@ Always enabled (this service isn't deployed publicly yet - see the root README's
 http://localhost:8001/docs
 ```
 
+### Logging
+
+All logs are written as single-line JSON to stdout only - no file or log rotation - visible
+via `docker logs` in the containerized deployment or directly in the terminal when run
+locally. Every log line includes at least:
+
+| Field      | Description                                          |
+|------------|-------------------------------------------------------|
+| `timestamp`| ISO 8601 timestamp of the log event                  |
+| `level`    | Python log level (`INFO`, `WARNING`, `ERROR`)         |
+| `logger`   | Logger name (module path, e.g. `data_service.main`)  |
+| `message`  | The log message                                      |
+
+Every HTTP request produces exactly one `INFO`-level access-log line with `method`, `path`,
+`status`, `durationMs`, and a generated `requestId` (a fresh UUID per request). Any error-log
+line produced while handling that request carries the same `requestId`, so the two can be
+correlated after the fact:
+
+- `401`/`404`/`422` responses log at `WARNING`.
+- `502` (upstream fetch failure) and unhandled `500` responses log at `ERROR`, the latter with
+  a full stack trace.
+
 ### Verifying changes
 
 ```

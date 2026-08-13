@@ -1,8 +1,14 @@
 import logging
+import sys
+import time
+import uuid
+from contextvars import ContextVar
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pythonjsonlogger.json import JsonFormatter
+from starlette.middleware.base import RequestResponseEndpoint
 
 from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
 from data_service.routes.assets import router as assets_router
@@ -11,15 +17,37 @@ from data_service.routes.health import router as health_router
 from data_service.routes.inflation import router as inflation_router
 from data_service.schemas.error import ErrorResponse
 
-# A no-op if the root logger already has a handler (e.g. uvicorn configured its own
-# before this module was imported) - otherwise this is the only thing standing between
-# our logs and Python's "handler of last resort" (INFO dropped entirely, WARNING+ shown
-# with no timestamp/level/logger name). Every future service in this repo will import
-# `logging.getLogger(__name__)` the same way this one does, so it's worth getting a
-# real baseline config in place now rather than each one rediscovering this gap.
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+_request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+class _RequestIdLogFilter(logging.Filter):
+    """Injects the current request's id (if any) onto every LogRecord, so a log line
+    emitted while handling a request can be correlated with that request's access-log
+    line - see request_logging_middleware below."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.requestId = _request_id_ctx.get()
+        return True
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(
+    JsonFormatter(
+        "{levelname}{name}{message}",
+        style="{",
+        rename_fields={"levelname": "level", "name": "logger"},
+        timestamp=True,
+    )
 )
+_handler.addFilter(_RequestIdLogFilter())
+
+# force=True replaces any handler already attached to the root logger (e.g. uvicorn's own
+# plain-text one) with the JSON handler above - a plain no-op basicConfig call would leave
+# uvicorn's handler (and its plain-text format) in place. uvicorn's own access logger is
+# disabled below so it doesn't also print a second, differently-formatted access line for
+# every request alongside request_logging_middleware's line.
+logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
+logging.getLogger("uvicorn.access").disabled = True
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +66,49 @@ app.include_router(inflation_router)
 app.include_router(health_router)
 
 
+@app.middleware("http")
+async def request_logging_middleware(
+    request: Request, call_next: RequestResponseEndpoint
+) -> Response:
+    # unhandled_exception_handler (registered for the bare Exception type) runs in
+    # Starlette's ServerErrorMiddleware, which wraps *outside* this middleware - so an
+    # exception that reaches it propagates straight out of call_next below, past this
+    # function entirely. requestId is deliberately never reset here: resetting it before
+    # re-raising would clear it before that handler gets a chance to log, breaking the
+    # "access line and error line share a requestId" guarantee for the 500 case.
+    request_id = str(uuid.uuid4())
+    _request_id_ctx.set(request_id)
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.perf_counter() - start) * 1000)
+        logger.info(
+            "request completed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": 500,
+                "durationMs": duration_ms,
+            },
+        )
+        raise
+    duration_ms = round((time.perf_counter() - start) * 1000)
+    logger.info(
+        "request completed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "durationMs": duration_ms,
+        },
+    )
+    return response
+
+
 @app.exception_handler(AssetNotFoundError)
 def asset_not_found_handler(request: Request, exc: AssetNotFoundError) -> JSONResponse:
+    logger.warning("%s: %s", type(exc).__name__, str(exc))
     return JSONResponse(
         status_code=404,
         content=ErrorResponse(status="NOT_FOUND", message=str(exc)).model_dump(),
@@ -48,6 +117,7 @@ def asset_not_found_handler(request: Request, exc: AssetNotFoundError) -> JSONRe
 
 @app.exception_handler(UpstreamFetchError)
 def upstream_fetch_error_handler(request: Request, exc: UpstreamFetchError) -> JSONResponse:
+    logger.error("%s: %s", type(exc).__name__, str(exc))
     return JSONResponse(
         status_code=502,
         content=ErrorResponse(status="BAD_GATEWAY", message=str(exc)).model_dump(),
@@ -63,6 +133,7 @@ def request_validation_error_handler(
     # constrained params, so this is the first request that can reach a 422 at all.
     errors = exc.errors()
     message = errors[0]["msg"] if errors else "Invalid request parameters."
+    logger.warning("validation error: %s", message)
     return JSONResponse(
         status_code=422,
         content=ErrorResponse(status="UNPROCESSABLE_ENTITY", message=message).model_dump(),
@@ -71,6 +142,7 @@ def request_validation_error_handler(
 
 @app.exception_handler(HTTPException)
 def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    logger.warning("%s: %s", type(exc).__name__, exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
@@ -114,4 +186,8 @@ if __name__ == "__main__":
     # isolation, and the API key is the only thing standing between it and any request
     # that reaches it. DATA_SERVICE_HOST lets the containerized deployment opt into
     # binding 0.0.0.0 without changing this default.
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    #
+    # log_config=None stops uvicorn from installing its own plain-text handlers on the
+    # uvicorn/uvicorn.error loggers, so its startup/shutdown messages flow through the
+    # JSON handler configured above instead of printing as plain text.
+    uvicorn.run(app, host=settings.host, port=settings.port, log_config=None)
