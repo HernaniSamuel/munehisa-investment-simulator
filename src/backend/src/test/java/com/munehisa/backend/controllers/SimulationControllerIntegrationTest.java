@@ -55,6 +55,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -1647,7 +1648,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void sell_full_returns200DeletesPositionRowAndEvictsOrphanedAsset() throws Exception {
+    void sell_full_returns200DeletesPositionRowAndMarksAssetOrphaned() throws Exception {
         User user = createUser(u -> {
         });
         String token = tokenService.generateToken(user);
@@ -1665,7 +1666,9 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.totalAssetValue").value(0));
 
         assertTrue(positionRepository.findBySimulationId(simulation.getId()).isEmpty());
-        assertTrue(assetCatalogRepository.findByTicker("AAPL").isEmpty());
+        // #142: no longer deleted immediately - marked orphaned, actually deleted only once the
+        // grace period elapses (proven by AssetCacheServiceTest's cleanup job tests).
+        assertNotNull(assetCatalogRepository.findByTicker("AAPL").orElseThrow().getOrphanedSince());
     }
 
     @Test
@@ -2237,8 +2240,9 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
         assertEquals(aapl.getId(), positions.get(0).getAssetId());
         assertEquals(10, positions.get(0).getQuantity());
 
-        // MSFT was only bought after the snapshot and no position references it anywhere now.
-        assertTrue(assetCatalogRepository.findByTicker("MSFT").isEmpty());
+        // MSFT was only bought after the snapshot and no position references it anywhere now -
+        // #142: marked orphaned rather than deleted immediately, pending the grace period.
+        assertNotNull(assetCatalogRepository.findByTicker("MSFT").orElseThrow().getOrphanedSince());
 
         List<Transaction> remainingTransactions = transactionRepository.findBySimulationId(simulation.getId());
         assertEquals(1, remainingTransactions.size());
@@ -2274,7 +2278,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void reset_positionOpenedAfterSnapshot_evictsOrphanedAsset() throws Exception {
+    void reset_positionOpenedAfterSnapshot_marksOrphanedAsset() throws Exception {
         User user = createUser(u -> {
         });
         String token = tokenService.generateToken(user);
@@ -2288,7 +2292,7 @@ class SimulationControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(status().isOk());
 
         assertTrue(positionRepository.findBySimulationId(simulation.getId()).isEmpty());
-        assertTrue(assetCatalogRepository.findByTicker("MSFT").isEmpty());
+        assertNotNull(assetCatalogRepository.findByTicker("MSFT").orElseThrow().getOrphanedSince());
     }
 
     @Test

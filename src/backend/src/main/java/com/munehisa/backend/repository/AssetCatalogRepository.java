@@ -7,7 +7,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,6 +17,10 @@ public interface AssetCatalogRepository extends JpaRepository<AssetCatalog, UUID
     boolean existsByTicker(String ticker);
 
     Optional<AssetCatalog> findByTicker(String ticker);
+
+    // NULL orphaned_since is excluded automatically: SQL "<" against NULL evaluates to
+    // unknown/false, so still-referenced (never orphaned) rows never match this comparison.
+    List<AssetCatalog> findByOrphanedSinceBefore(Instant cutoff);
 
     // Atomic insert-or-update on the natural key (ticker), so two concurrent cold-start
     // refreshes for the same never-cached ticker can never both attempt an insert and

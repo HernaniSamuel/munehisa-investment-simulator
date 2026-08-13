@@ -15,9 +15,15 @@ import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
 import com.munehisa.backend.repository.PositionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +35,10 @@ public class AssetCacheService {
     private final AssetMonthlyPriceRepository assetMonthlyPriceRepository;
     private final DataServiceAssetClient dataServiceAssetClient;
     private final PositionRepository positionRepository;
+    private final Clock clock;
+
+    @Value("${asset-cache.orphan-grace-period-days}")
+    private int orphanGracePeriodDays;
 
     public AssetLookupResultDTO getAssetSeries(String tickerRaw, YearMonth targetMonth) {
         String ticker = tickerRaw.toUpperCase();
@@ -38,6 +48,11 @@ public class AssetCacheService {
         AssetCatalog catalog = assetCatalogRepository.findByTicker(ticker)
                 .orElseThrow(() -> new IllegalStateException(
                         "No asset catalog entry for " + ticker + " after a successful refresh"));
+
+        if (catalog.getOrphanedSince() != null) {
+            catalog.setOrphanedSince(null);
+            assetCatalogRepository.save(catalog);
+        }
 
         YearMonth startMonth = YearMonth.from(catalog.getStartDate());
         if (targetMonth.isBefore(startMonth)) {
@@ -65,13 +80,41 @@ public class AssetCacheService {
 
     // Assumes assetId already exists in asset_catalog (the only route into `position` is via
     // its FK to asset_catalog.id); a nonexistent assetId is out of scope for #70 and will
-    // surface as EmptyResultDataAccessException from deleteById if ever violated.
+    // surface as an IllegalStateException from findById if ever violated.
+    //
+    // Marks the row orphaned instead of deleting it immediately (#142): a full sell reverted by
+    // a month reset, or a concurrent sell/buy of the same ticker by different users, would
+    // otherwise trigger an immediate delete followed by an avoidable data-service refetch.
+    // cleanupOrphanedAssets() below does the actual delete once the grace period has elapsed.
+    // Idempotent - a second call while already orphaned does not reset the clock.
     public void evictIfOrphaned(UUID assetId) {
         if (positionRepository.existsByAssetId(assetId)) {
             return;
         }
-        assetCatalogRepository.deleteById(assetId);
-        log.info("Evicted orphaned asset cache entry {}", assetId);
+        AssetCatalog catalog = assetCatalogRepository.findById(assetId)
+                .orElseThrow(() -> new IllegalStateException("No asset catalog entry for " + assetId));
+        if (catalog.getOrphanedSince() != null) {
+            return;
+        }
+        catalog.setOrphanedSince(clock.instant());
+        assetCatalogRepository.save(catalog);
+        log.info("Marked asset cache entry {} orphaned", assetId);
+    }
+
+    // Runs once a day; re-checks each grace-period-expired candidate against positionRepository
+    // to close the race where a position was re-bought after evictIfOrphaned marked the row but
+    // before this job runs.
+    @Scheduled(cron = "0 0 3 * * *")
+    @Transactional
+    public void cleanupOrphanedAssets() {
+        Instant cutoff = clock.instant().minus(orphanGracePeriodDays, ChronoUnit.DAYS);
+        for (AssetCatalog catalog : assetCatalogRepository.findByOrphanedSinceBefore(cutoff)) {
+            if (!positionRepository.existsByAssetId(catalog.getId())) {
+                assetCatalogRepository.delete(catalog);
+                log.info("Deleted orphaned asset cache entry {} (orphaned since {})",
+                        catalog.getId(), catalog.getOrphanedSince());
+            }
+        }
     }
 
     private AssetMonthDataDTO toDto(AssetMonthlyPrice row) {

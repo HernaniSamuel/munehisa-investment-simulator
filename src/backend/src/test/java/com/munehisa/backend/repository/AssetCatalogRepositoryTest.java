@@ -10,7 +10,10 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -94,5 +97,27 @@ class AssetCatalogRepositoryTest extends SharedPostgresContainer {
                 UUID.randomUUID(), "AAPL", "Apple Inc.", "USD", LocalDate.of(1980, 12, 1), false);
 
         assertFalse(assetCatalogRepository.findByTicker("AAPL").orElseThrow().isPricesSplitAdjusted());
+    }
+
+    @Test
+    void findByOrphanedSinceBefore_excludesNullAndReturnsOnlyRowsBeforeCutoff() {
+        Instant cutoff = Instant.parse("2024-06-15T00:00:00Z");
+
+        AssetCatalog neverOrphaned = persist("AAPL", "Apple Inc.", "USD", LocalDate.of(1980, 12, 1));
+        neverOrphaned.setOrphanedSince(null);
+        assetCatalogRepository.saveAndFlush(neverOrphaned);
+
+        AssetCatalog orphanedBeforeCutoff = persist("TSLA", "Tesla Inc.", "USD", LocalDate.of(2010, 6, 1));
+        orphanedBeforeCutoff.setOrphanedSince(cutoff.minus(10, ChronoUnit.DAYS));
+        assetCatalogRepository.saveAndFlush(orphanedBeforeCutoff);
+
+        AssetCatalog orphanedAfterCutoff = persist("MSFT", "Microsoft Corp.", "USD", LocalDate.of(1986, 3, 1));
+        orphanedAfterCutoff.setOrphanedSince(cutoff.plus(1, ChronoUnit.DAYS));
+        assetCatalogRepository.saveAndFlush(orphanedAfterCutoff);
+
+        List<AssetCatalog> candidates = assetCatalogRepository.findByOrphanedSinceBefore(cutoff);
+
+        assertEquals(1, candidates.size());
+        assertEquals("TSLA", candidates.get(0).getTicker());
     }
 }

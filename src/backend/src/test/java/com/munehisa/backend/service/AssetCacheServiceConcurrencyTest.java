@@ -3,6 +3,7 @@ package com.munehisa.backend.service;
 import com.munehisa.backend.domain.asset.AssetMonthlyPrice;
 import com.munehisa.backend.dto.dataservice.RawAssetMonthDataPoint;
 import com.munehisa.backend.dto.dataservice.RawAssetSeries;
+import com.munehisa.backend.infra.time.ClockConfig;
 import com.munehisa.backend.repository.AssetCatalogRepository;
 import com.munehisa.backend.repository.AssetMonthlyPriceRepository;
 import com.munehisa.backend.testsupport.SharedPostgresContainer;
@@ -43,7 +44,7 @@ import static org.mockito.Mockito.when;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(AssetCacheService.class)
+@Import({AssetCacheService.class, ClockConfig.class})
 @ActiveProfiles("test")
 @Tag("integration")
 // @DataJpaTest wraps each test method (and its @BeforeEach/@AfterEach) in one transaction
