@@ -16,10 +16,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,8 +54,21 @@ class AssetCacheServiceTest {
     @Mock
     private PositionRepository positionRepository;
 
+    private static final int DEFAULT_GRACE_PERIOD_DAYS = 7;
+
     private AssetCacheService buildService() {
-        return new AssetCacheService(assetCatalogRepository, assetMonthlyPriceRepository, dataServiceAssetClient, positionRepository);
+        return buildService(fixedClockOn(LocalDate.of(2024, 6, 15)), DEFAULT_GRACE_PERIOD_DAYS);
+    }
+
+    private AssetCacheService buildService(Clock clock, int orphanGracePeriodDays) {
+        AssetCacheService service = new AssetCacheService(
+                assetCatalogRepository, assetMonthlyPriceRepository, dataServiceAssetClient, positionRepository, clock);
+        ReflectionTestUtils.setField(service, "orphanGracePeriodDays", orphanGracePeriodDays);
+        return service;
+    }
+
+    private static Clock fixedClockOn(LocalDate date) {
+        return Clock.fixed(date.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
     }
 
     private AssetCatalog catalog(String ticker, String name, String baseCurrency, LocalDate startDate) {
@@ -361,17 +379,38 @@ class AssetCacheServiceTest {
                 any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any());
     }
 
-    // --- Eviction --------------------------------------------------------------------------
+    // --- Eviction (marking orphaned) --------------------------------------------------------
 
     @Test
-    void evictIfOrphaned_deletesCatalogRowWhenNoPositionReferencesIt() {
+    void evictIfOrphaned_marksOrphanedSinceWhenNoPositionReferencesIt() {
         UUID assetId = UUID.randomUUID();
+        AssetCatalog catalog = catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1));
+        Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
         when(positionRepository.existsByAssetId(assetId)).thenReturn(false);
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(catalog));
 
-        AssetCacheService service = buildService();
+        AssetCacheService service = buildService(clock, DEFAULT_GRACE_PERIOD_DAYS);
         service.evictIfOrphaned(assetId);
 
-        verify(assetCatalogRepository).deleteById(assetId);
+        assertEquals(clock.instant(), catalog.getOrphanedSince());
+        verify(assetCatalogRepository).save(catalog);
+        verify(assetCatalogRepository, never()).deleteById(any(UUID.class));
+    }
+
+    @Test
+    void evictIfOrphaned_secondCallDoesNotOverwriteExistingOrphanedSince() {
+        UUID assetId = UUID.randomUUID();
+        Instant alreadyOrphanedSince = fixedClockOn(LocalDate.of(2024, 6, 1)).instant();
+        AssetCatalog catalog = catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1));
+        catalog.setOrphanedSince(alreadyOrphanedSince);
+        when(positionRepository.existsByAssetId(assetId)).thenReturn(false);
+        when(assetCatalogRepository.findById(assetId)).thenReturn(Optional.of(catalog));
+
+        AssetCacheService service = buildService(fixedClockOn(LocalDate.of(2024, 6, 15)), DEFAULT_GRACE_PERIOD_DAYS);
+        service.evictIfOrphaned(assetId);
+
+        assertEquals(alreadyOrphanedSince, catalog.getOrphanedSince());
+        verify(assetCatalogRepository, never()).save(any(AssetCatalog.class));
     }
 
     @Test
@@ -382,6 +421,95 @@ class AssetCacheServiceTest {
         AssetCacheService service = buildService();
         service.evictIfOrphaned(assetId);
 
+        verify(assetCatalogRepository, never()).findById(any(UUID.class));
         verify(assetCatalogRepository, never()).deleteById(any(UUID.class));
+    }
+
+    // --- Un-orphaning on lookup --------------------------------------------------------------
+
+    @Test
+    void lookup_clearsOrphanedSinceWhenTickerRowWasOrphaned() {
+        AssetCatalog catalog = catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1));
+        catalog.setOrphanedSince(fixedClockOn(LocalDate.of(2024, 6, 1)).instant());
+
+        when(assetCatalogRepository.existsByTicker("AAPL")).thenReturn(true);
+        when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
+                .thenReturn(Optional.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+        when(assetCatalogRepository.findByTicker("AAPL")).thenReturn(Optional.of(catalog));
+        when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 2)))
+                .thenReturn(List.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+
+        AssetCacheService service = buildService();
+        service.getAssetSeries("AAPL", YearMonth.of(2024, 2));
+
+        assertNull(catalog.getOrphanedSince());
+        verify(assetCatalogRepository).save(catalog);
+    }
+
+    @Test
+    void lookup_doesNotSaveWhenOrphanedSinceAlreadyNull() {
+        when(assetCatalogRepository.existsByTicker("AAPL")).thenReturn(true);
+        when(assetMonthlyPriceRepository.findFirstByTickerOrderByReferenceMonthDesc("AAPL"))
+                .thenReturn(Optional.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+        when(assetCatalogRepository.findByTicker("AAPL"))
+                .thenReturn(Optional.of(catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1))));
+        when(assetMonthlyPriceRepository.findByTickerAndReferenceMonthLessThanEqualOrderByReferenceMonthAsc("AAPL", YearMonth.of(2024, 2)))
+                .thenReturn(List.of(row("AAPL", YearMonth.of(2024, 2), "185.00")));
+
+        AssetCacheService service = buildService();
+        service.getAssetSeries("AAPL", YearMonth.of(2024, 2));
+
+        verify(assetCatalogRepository, never()).save(any(AssetCatalog.class));
+    }
+
+    // --- Cleanup job -------------------------------------------------------------------------
+
+    @Test
+    void cleanup_deletesRowOrphanedPastGracePeriodWithNoPosition() {
+        Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
+        AssetCatalog catalog = catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1));
+        UUID assetId = UUID.randomUUID();
+        catalog.setId(assetId);
+        catalog.setOrphanedSince(clock.instant().minus(10, ChronoUnit.DAYS));
+
+        Instant expectedCutoff = clock.instant().minus(DEFAULT_GRACE_PERIOD_DAYS, ChronoUnit.DAYS);
+        when(assetCatalogRepository.findByOrphanedSinceBefore(expectedCutoff)).thenReturn(List.of(catalog));
+        when(positionRepository.existsByAssetId(assetId)).thenReturn(false);
+
+        AssetCacheService service = buildService(clock, DEFAULT_GRACE_PERIOD_DAYS);
+        service.cleanupOrphanedAssets();
+
+        verify(assetCatalogRepository).delete(catalog);
+    }
+
+    @Test
+    void cleanup_keepsRowOrphanedPastGracePeriodButNowReferencedByPosition() {
+        Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
+        AssetCatalog catalog = catalog("AAPL", "Apple Inc.", "USD", LocalDate.of(2024, 1, 1));
+        UUID assetId = UUID.randomUUID();
+        catalog.setId(assetId);
+        catalog.setOrphanedSince(clock.instant().minus(10, ChronoUnit.DAYS));
+
+        Instant expectedCutoff = clock.instant().minus(DEFAULT_GRACE_PERIOD_DAYS, ChronoUnit.DAYS);
+        when(assetCatalogRepository.findByOrphanedSinceBefore(expectedCutoff)).thenReturn(List.of(catalog));
+        when(positionRepository.existsByAssetId(assetId)).thenReturn(true);
+
+        AssetCacheService service = buildService(clock, DEFAULT_GRACE_PERIOD_DAYS);
+        service.cleanupOrphanedAssets();
+
+        verify(assetCatalogRepository, never()).delete(any(AssetCatalog.class));
+    }
+
+    @Test
+    void cleanup_usesConfiguredGracePeriodDaysAsCutoff() {
+        Clock clock = fixedClockOn(LocalDate.of(2024, 6, 15));
+        int customGracePeriodDays = 14;
+        Instant expectedCutoff = clock.instant().minus(customGracePeriodDays, ChronoUnit.DAYS);
+        when(assetCatalogRepository.findByOrphanedSinceBefore(expectedCutoff)).thenReturn(List.of());
+
+        AssetCacheService service = buildService(clock, customGracePeriodDays);
+        service.cleanupOrphanedAssets();
+
+        verify(assetCatalogRepository).findByOrphanedSinceBefore(expectedCutoff);
     }
 }

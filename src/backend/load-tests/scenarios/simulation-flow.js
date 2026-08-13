@@ -6,12 +6,12 @@
 //
 // Buys BUY_QUANTITY but sells only SELL_QUANTITY < BUY_QUANTITY, deliberately leaving a
 // non-empty position: selling the *entire* position triggers SimulationService#sell's
-// evictIfOrphaned call, which deletes the ticker from AssetCacheService's Postgres cache the
-// moment no position references it anymore (confirmed against the backend source and by
-// running this suite against a live stack: a full sell of a shared ticker caused repeated,
-// concurrent data-service re-fetches of that ticker from other scenarios afterwards). A
-// partial sell still exercises both POST .../buy and POST .../sell without ever emptying the
-// position, so the warmed cache entry survives for the rest of the run.
+// evictIfOrphaned call, which marks the ticker's AssetCacheService Postgres cache row orphaned
+// the moment no position references it anymore. The row is only actually deleted by the daily
+// cleanup job once it stays orphaned past the configured grace period (issue #142) - well
+// outside a single load-test run - but a partial sell still exercises both POST .../buy and
+// POST .../sell without ever orphaning the position, so the warmed cache entry stays
+// unambiguously live for the rest of the run.
 import { authedPost } from '../lib/http.js';
 import { createSimulation, depositFixed } from '../lib/simulations.js';
 import { TICKERS, DEPOSIT_AMOUNT } from '../config/identifiers.js';

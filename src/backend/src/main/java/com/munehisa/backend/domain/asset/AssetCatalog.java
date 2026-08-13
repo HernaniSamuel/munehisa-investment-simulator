@@ -11,6 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -42,4 +43,10 @@ public class AssetCatalog {
     // same "split-adjusted" assumption a fresh DB row would have.
     @Column(name = "prices_split_adjusted", nullable = false)
     private boolean pricesSplitAdjusted = true;
+
+    // Null means "not orphaned" (referenced by at least one position, or never evicted).
+    // Set by AssetCacheService#evictIfOrphaned when no position references this asset anymore,
+    // and cleared by #getAssetSeries if the ticker is looked up again during the grace period.
+    @Column(name = "orphaned_since")
+    private Instant orphanedSince;
 }
