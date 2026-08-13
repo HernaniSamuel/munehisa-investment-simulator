@@ -56,7 +56,7 @@ class SecurityConfigTest {
     );
 
     private static final List<String> EXPECTED_PERMIT_ALL_PATTERNS = List.of(
-            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
+            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health"
     );
 
     private MockMvc mockMvc;

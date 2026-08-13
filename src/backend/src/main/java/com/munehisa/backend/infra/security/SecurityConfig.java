@@ -44,7 +44,7 @@ public class SecurityConfig {
     );
 
     static final List<String> PERMIT_ALL_PATTERNS = List.of(
-            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
+            "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/actuator/health"
     );
 
     @Bean
