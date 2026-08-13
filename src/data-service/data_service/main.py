@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from data_service.exceptions import AssetNotFoundError, UpstreamFetchError
 from data_service.routes.assets import router as assets_router
 from data_service.routes.exchange import router as exchange_router
+from data_service.routes.health import router as health_router
 from data_service.routes.inflation import router as inflation_router
 from data_service.schemas.error import ErrorResponse
 
@@ -34,6 +35,7 @@ app = FastAPI(
 app.include_router(assets_router)
 app.include_router(exchange_router)
 app.include_router(inflation_router)
+app.include_router(health_router)
 
 
 @app.exception_handler(AssetNotFoundError)
