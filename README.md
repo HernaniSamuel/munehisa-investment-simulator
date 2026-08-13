@@ -45,7 +45,24 @@ Enabled by default when running with the `dev` profile (the default), no extra c
 http://localhost:8000/swagger-ui.html
 ```
 
-It's disabled by default in any other profile (e.g. a future `prod` profile). Set `SWAGGER_UI_ENABLED=false` in `.env` to opt out even in dev.
+It's disabled by default in any other profile, including `prod` (see below). Set
+`SWAGGER_UI_ENABLED=false` in `.env` to opt out even in dev.
+
+### Production configuration
+
+Running the backend with `SPRING_PROFILES_ACTIVE=prod` picks up
+`application-prod.properties` instead of the dev config, and requires a couple of env vars
+that have no equivalent in local/dev use:
+
+- `FRONTEND_URL` - **required, no default.** Unlike dev (which falls back to
+  `http://localhost:5173`), starting in `prod` without it set fails immediately instead of
+  silently emailing verification/password-reset links to `localhost`.
+- `CORS_ALLOWED_ORIGINS` - optional, defaults to the GitHub Pages frontend
+  (`https://hernanisamuel.github.io`). Override it if the production frontend origin changes.
+
+The Actuator surface is also locked down in `prod`: only `GET /actuator/health` is exposed
+(no `/env`, `/beans`, etc.), and Swagger/OpenAPI stay off unless `SWAGGER_UI_ENABLED=true` is
+set explicitly, same as any non-dev profile.
 
 ### Running the full stack with Docker Compose
 
