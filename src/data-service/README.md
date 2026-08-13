@@ -41,9 +41,12 @@ cache-miss and owns everything downstream of the raw data.
    # No autoreload, honors DATA_SERVICE_PORT from .env:
    python -m data_service.main
    ```
-   Both bind to `127.0.0.1` (loopback-only) - there's no network-level isolation yet
-   (deferred to a future hosting decision), so the API key is the only thing standing
-   between this service and any request that reaches it.
+   Both bind to `127.0.0.1` (loopback-only) by default - there's no network-level
+   isolation at this bind level, so the API key is the only thing standing between this
+   service and any request that reaches it. `python -m data_service.main` honors an
+   optional `DATA_SERVICE_HOST` override (defaults to `127.0.0.1`); the containerized
+   deployment (see the root README) is the one place that opts into `0.0.0.0`, since the
+   Docker network already provides the isolation a bare loopback bind doesn't.
 
 ### API docs (Swagger UI)
 

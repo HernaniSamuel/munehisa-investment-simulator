@@ -31,5 +31,33 @@ services:
       postgres:
         condition: service_healthy
 
+  data-service:
+    build:
+      context: ./src/data-service
+    container_name: data-service
+    restart: always
+    env_file:
+      - ./src/data-service/.env
+    expose:
+      - "8001"
+
+  backend:
+    build:
+      context: ./src/backend
+    container_name: backend
+    restart: always
+    env_file:
+      - ./src/backend/.env
+    environment:
+      POSTGRES_HOST: postgres
+      DATA_SERVICE_BASE_URL: http://data-service:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-service:
+        condition: service_healthy
+
 volumes:
   postgres_data:

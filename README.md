@@ -47,6 +47,35 @@ http://localhost:8000/swagger-ui.html
 
 It's disabled by default in any other profile (e.g. a future `prod` profile). Set `SWAGGER_UI_ENABLED=false` in `.env` to opt out even in dev.
 
+### Running the full stack with Docker Compose
+
+For integration/load testing, or to preview the container shape each service will run in on
+a future hosting platform, Docker Compose can also build and run Postgres, the backend, and
+the data-service together:
+
+```
+docker compose up --build
+```
+
+This is not a replacement for day-to-day development - `./mvnw spring-boot:run` and
+`uvicorn --reload` (see [`src/data-service/README.md`](src/data-service/README.md)) stay the
+faster, hot-reloading way to work on either service. It's meant for exercising the
+production-shaped images (multi-stage builds, non-root users, health checks) end to end.
+
+Besides the root `.env` (read by Docker Compose itself, for `postgres`/`pgadmin`), the
+`backend` and `data-service` containers each read their own `.env` file
+(`src/backend/.env` and `src/data-service/.env` respectively - the same files
+`./mvnw spring-boot:run` and `uvicorn`/`python -m data_service.main` already require). Fill
+in all three before running `docker compose up --build`. `POSTGRES_HOST` and
+`DATA_SERVICE_BASE_URL` don't need to be set in `src/backend/.env` for this flow - Compose
+sets them itself so `backend` can reach `postgres` and `data-service` by their Compose
+service names.
+
+The backend is published on `http://localhost:8000` as usual. The data-service is *not*
+published to the host - it's only reachable from `backend` on the Compose network, consistent
+with its "the API key is the only thing standing between this service and any request that
+reaches it" posture (see [`src/data-service/README.md`](src/data-service/README.md)).
+
 ### Running tests
 
 ```
