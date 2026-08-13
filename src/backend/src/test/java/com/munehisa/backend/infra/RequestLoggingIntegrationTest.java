@@ -17,6 +17,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -66,5 +67,24 @@ class RequestLoggingIntegrationTest extends IntegrationTestBase {
         String warnRequestId = warnEvents.get(0).getMDCPropertyMap().get("requestId");
         assertNotNull(accessRequestId);
         assertEquals(accessRequestId, warnRequestId, "access-log and error-log lines must share the same requestId");
+    }
+
+    @Test
+    void requestRejectedBySpringSecurityBeforeTheController_stillProducesAnAccessLogLine() throws Exception {
+        // RestAuthenticationEntryPoint writes the 401 directly and never calls
+        // filterChain.doFilter(...), so this only reaches RequestLoggingFilter at all if the
+        // filter is ordered ahead of Spring Security's FilterChainProxy.
+        appender.start();
+        rootLogger.addAppender(appender);
+
+        mockMvc.perform(get("/simulations"))
+                .andExpect(status().isUnauthorized());
+
+        List<ILoggingEvent> accessEvents = appender.list.stream()
+                .filter(event -> "com.munehisa.backend.infra.logging.RequestLoggingFilter".equals(event.getLoggerName()))
+                .toList();
+
+        assertEquals(1, accessEvents.size(),
+                "a request rejected by Spring Security before reaching the controller must still produce an access-log line");
     }
 }
