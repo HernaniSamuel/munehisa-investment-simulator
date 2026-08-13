@@ -110,8 +110,8 @@ if __name__ == "__main__":
 
     from data_service.config import settings
 
-    # Loopback-only: this service has no network-level isolation yet (deferred to a
-    # future hosting decision per the issue), and the API key is the only thing standing
-    # between it and any request that reaches it. Binding wider than 127.0.0.1 is a
-    # deliberate, separate decision to make once that hosting story exists.
-    uvicorn.run(app, host="127.0.0.1", port=settings.port)
+    # Loopback-only by default: outside a container, this service has no network-level
+    # isolation, and the API key is the only thing standing between it and any request
+    # that reaches it. DATA_SERVICE_HOST lets the containerized deployment opt into
+    # binding 0.0.0.0 without changing this default.
+    uvicorn.run(app, host=settings.host, port=settings.port)
