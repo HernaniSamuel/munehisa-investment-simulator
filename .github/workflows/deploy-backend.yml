@@ -88,4 +88,6 @@ jobs:
           key: ${{ secrets.HETZNER_VM_SSH_KEY }}
           # The deploy key's authorized_keys entry forces this exact command server-side
           # regardless of what's sent here - kept identical for clarity when reading logs.
-          script: cd /root/app/deploy && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+          # git pull keeps deploy/docker-compose.prod.yml and Caddyfile in sync too, not just
+          # the images - without it, a compose-file-only change never reaches the VM.
+          script: cd /root/app && git pull && cd deploy && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d

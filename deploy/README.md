@@ -126,7 +126,7 @@ images to GHCR on every push to `main` that touches `src/backend/**`, `src/data-
      one. Generate one (`ssh-keygen -t ed25519 -f deploy_key -N ""`) and add its public half to
      the VM's `~/.ssh/authorized_keys`, ideally restricted to only the deploy command:
      ```
-     command="cd /root/app/deploy && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
+     command="cd /root/app && git pull && cd deploy && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
      ```
      This way, even if the key material in the GitHub secret ever leaks, it can only run that
      one command - not open an arbitrary shell.
