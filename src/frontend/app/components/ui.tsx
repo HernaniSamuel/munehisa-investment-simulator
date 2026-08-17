@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 type ButtonVariant = "primary" | "secondary" | "ink" | "solid";
 
@@ -118,6 +119,7 @@ type PasswordFieldProps = Omit<TextFieldProps, "type" | "trailing">;
 
 export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
   (props, ref) => {
+    const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
 
     return (
@@ -128,7 +130,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
           <button
             type="button"
             onClick={() => setVisible((v) => !v)}
-            aria-label={visible ? "Hide password" : "Show password"}
+            aria-label={visible ? t("common.hidePassword") : t("common.showPassword")}
             className="group flex h-full items-center px-2.5 rounded-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
           >
             {visible ? <EyeOffIcon /> : <EyeIcon />}

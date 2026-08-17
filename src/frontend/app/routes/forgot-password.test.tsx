@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import ForgotPassword from "./forgot-password";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -74,5 +75,15 @@ describe("ForgotPassword", () => {
     await act(async () => {
       resolveRequest(undefined);
     });
+  });
+
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderWithProviders(<ForgotPassword />, { route: "/forgot-password" });
+
+    expect(screen.getByText("Esqueci minha senha")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Enviar link de redefinição" })).toBeInTheDocument();
   });
 });

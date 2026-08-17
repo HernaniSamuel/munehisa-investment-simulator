@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LanguageSwitcher } from "~/components/LanguageSwitcher";
 
 export function AuthShell({
   seal,
@@ -16,6 +17,9 @@ export function AuthShell({
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-paper px-4 py-10">
       <div className="washi-texture" aria-hidden="true" />
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher />
+      </div>
       <div className="relative w-full max-w-[420px]">
         <div className="mb-8 flex flex-col items-center gap-2">
           <div className="flex h-11 w-11 items-center justify-center bg-ink font-display text-xl text-paper">

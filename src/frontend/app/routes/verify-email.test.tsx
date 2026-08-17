@@ -1,7 +1,8 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import VerifyEmail from "./verify-email";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -54,5 +55,15 @@ describe("VerifyEmail", () => {
     renderWithProviders(<VerifyEmail />, { route: "/verify-email?token=verify-tok" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Token expired");
+  });
+
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderWithProviders(<VerifyEmail />, { route: "/verify-email" });
+
+    expect(screen.getByText("Verificar e-mail")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Este link de verificação está sem o token.");
   });
 });

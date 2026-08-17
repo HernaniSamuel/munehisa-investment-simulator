@@ -1,16 +1,21 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import type { Route } from "./+types/reset-password";
 import { AuthShell } from "~/components/AuthShell";
 import { Banner, Button, TextField } from "~/components/ui";
 import { useAuth } from "~/lib/auth-context";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Reset password — Munehisa" }];
+  return [{ title: i18n.t("auth.resetPassword.metaTitle") }];
 }
 
+type FormErrorReason = "missingToken" | "passwordMismatch" | "apiError";
+
 export default function ResetPassword() {
+  const { t } = useTranslation();
   const { login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -18,8 +23,11 @@ export default function ResetPassword() {
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(
-    token ? null : "This reset link is missing its token."
+  // A reason discriminant (plus the raw error for the apiError case) rather
+  // than pre-formatted text, so the banner re-resolves through t() on every
+  // render, including after a language switch while it's still on screen.
+  const [error, setError] = useState<{ reason: FormErrorReason; error?: unknown } | null>(
+    token ? null : { reason: "missingToken" }
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,7 +35,7 @@ export default function ResetPassword() {
     event.preventDefault();
     if (!token) return;
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError({ reason: "passwordMismatch" });
       return;
     }
     setError(null);
@@ -37,20 +45,30 @@ export default function ResetPassword() {
       login(response);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError({ reason: "apiError", error: err });
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <AuthShell seal="改" eyebrow="Account recovery" title="Reset password">
+    <AuthShell seal="改" eyebrow={t("auth.resetPassword.eyebrow")} title={t("auth.resetPassword.title")}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        {error && <Banner tone="error">{error}</Banner>}
+        {error && (
+          <Banner tone="error">
+            {error.reason === "missingToken"
+              ? t("auth.resetPassword.missingToken")
+              : error.reason === "passwordMismatch"
+                ? t("auth.resetPassword.passwordMismatch")
+                : error.error instanceof ApiError
+                  ? error.error.message
+                  : t("common.somethingWentWrong")}
+          </Banner>
+        )}
 
         <TextField
           id="newPassword"
-          label="New password"
+          label={t("auth.resetPassword.newPasswordLabel")}
           type="password"
           autoComplete="new-password"
           required
@@ -62,7 +80,7 @@ export default function ResetPassword() {
         />
         <TextField
           id="confirmPassword"
-          label="Confirm new password"
+          label={t("auth.resetPassword.confirmPasswordLabel")}
           type="password"
           autoComplete="new-password"
           required
@@ -74,13 +92,13 @@ export default function ResetPassword() {
         />
 
         <Button type="submit" disabled={submitting || !token}>
-          {submitting ? "Resetting…" : "▸▸ Reset password"}
+          {submitting ? t("auth.resetPassword.resetting") : t("auth.resetPassword.submit")}
         </Button>
       </form>
 
       <p className="mt-6 text-center font-sans text-sm text-name">
         <Link to="/login" className="text-teal underline underline-offset-2">
-          Back to log in
+          {t("auth.resetPassword.backToLogin")}
         </Link>
       </p>
     </AuthShell>
