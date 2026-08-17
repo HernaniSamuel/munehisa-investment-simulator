@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/register";
 import { AuthShell } from "~/components/AuthShell";
-import { Banner, Button, TextField } from "~/components/ui";
+import { Banner, Button, PasswordField, TextField } from "~/components/ui";
 import { ApiError, authApi } from "~/lib/api";
 
 export function meta({}: Route.MetaArgs) {
@@ -66,10 +66,9 @@ export default function Register() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <TextField
+        <PasswordField
           id="password"
           label="Password"
-          type="password"
           autoComplete="new-password"
           required
           minLength={8}
@@ -77,10 +76,9 @@ export default function Register() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <TextField
+        <PasswordField
           id="confirmPassword"
           label="Confirm password"
-          type="password"
           autoComplete="new-password"
           required
           minLength={8}

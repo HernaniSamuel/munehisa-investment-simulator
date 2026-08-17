@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -35,30 +36,110 @@ Button.displayName = "Button";
 type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   error?: string;
+  trailing?: ReactNode;
 };
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  ({ label, id, error, className = "", ...props }, ref) => (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={id}
-        className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
-      >
-        {label}
-      </label>
+  ({ label, id, error, trailing, className = "", ...props }, ref) => {
+    const input = (
       <input
         ref={ref}
         id={id}
         className={`border px-3 py-2.5 font-sans text-ink placeholder:text-muted/60 focus:outline-none ${
           error ? "border-vermilion" : "border-ink/15 focus:border-vermilion"
-        } bg-paper ${className}`}
+        } bg-paper ${trailing ? "pr-10" : ""} ${className}`}
         {...props}
       />
-      {error && <p className="font-mono text-[11px] text-vermilion">{error}</p>}
-    </div>
-  )
+    );
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor={id}
+          className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
+        >
+          {label}
+        </label>
+        {trailing ? (
+          <div className="relative">
+            {input}
+            <div className="absolute inset-y-0 right-0 flex items-center">{trailing}</div>
+          </div>
+        ) : (
+          input
+        )}
+        {error && <p className="font-mono text-[11px] text-vermilion">{error}</p>}
+      </div>
+    );
+  }
 );
 TextField.displayName = "TextField";
+
+// The eye is drawn in `ink` (not `currentColor`) so it stays high-contrast
+// against the input in both themes: ink is dark in Sumi (light paper) and
+// light in Zankyo (dark paper) - see app.css's [data-theme="zankyo"] token
+// overrides. The `panel` disc behind it gives the icon its own backdrop so
+// it reads as a distinct, clickable badge rather than blending into the
+// input border.
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" className="fill-panel transition-colors group-hover:fill-ink/15" />
+      <path
+        d="M4 12C6 8.5 9 6.5 12 6.5C15 6.5 18 8.5 20 12C18 15.5 15 17.5 12 17.5C9 17.5 6 15.5 4 12Z"
+        className="stroke-ink"
+        strokeWidth="1.5"
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.6" className="fill-ink" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" className="fill-panel transition-colors group-hover:fill-ink/15" />
+      <path
+        d="M4 12C6 8.5 9 6.5 12 6.5C15 6.5 18 8.5 20 12C18 15.5 15 17.5 12 17.5C9 17.5 6 15.5 4 12Z"
+        className="stroke-ink"
+        strokeWidth="1.5"
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.6" className="fill-ink" />
+      <line x1="5" y1="17" x2="19" y2="7" className="stroke-ink" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+type PasswordFieldProps = Omit<TextFieldProps, "type" | "trailing">;
+
+export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
+  (props, ref) => {
+    const [visible, setVisible] = useState(false);
+
+    return (
+      <TextField
+        ref={ref}
+        type={visible ? "text" : "password"}
+        trailing={
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? "Hide password" : "Show password"}
+            className="group flex h-full items-center px-2.5 rounded-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
+          >
+            {visible ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        }
+        {...props}
+      />
+    );
+  }
+);
+PasswordField.displayName = "PasswordField";
 
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
   label: string;

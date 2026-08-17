@@ -100,4 +100,16 @@ describe("Login", () => {
 
     expect(screen.getByText("Account created. Check your inbox.")).toBeInTheDocument();
   });
+
+  it("toggles the password field's visibility", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Login />, { route: "/login" });
+
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password");
+
+    await user.click(screen.getByRole("button", { name: "Show password" }));
+
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
+  });
 });
