@@ -548,10 +548,19 @@ function PositionsTable({
 // own to stay open - so a second, nested Tooltip here would be unreachable
 // by mouse. The exact value is appended inline instead: it's still shown on
 // hover, just as more text within the one Tooltip that's already open.
-function currencyValueInline(amount: number, baseCurrency: "BRL" | "USD") {
+//
+// A plain module-level function can't call useTranslation() itself, so the
+// caller's own t() (SliceDetail already has one) is threaded through -
+// same reason the *_EXPLANATION constants and TRANSACTION_LABELS record
+// were removed from this file in favor of inline t() calls.
+function currencyValueInline(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  amount: number,
+  baseCurrency: "BRL" | "USD"
+) {
   const abbreviated = formatCurrency(amount, baseCurrency);
   if (!isAbbreviatedCurrency(amount)) return abbreviated;
-  return `${abbreviated} (exact: ${formatCurrencyExact(amount, baseCurrency)})`;
+  return t("dashboard.abbreviatedWithExact", { value: abbreviated, exact: formatCurrencyExact(amount, baseCurrency) });
 }
 
 function SliceDetail({ segment, baseCurrency }: { segment: DonutSegment; baseCurrency: "BRL" | "USD" }) {
@@ -563,8 +572,8 @@ function SliceDetail({ segment, baseCurrency }: { segment: DonutSegment; baseCur
       </span>
       <span>{t("dashboard.weightLabel")} {formatPercent(segment.weight)}</span>
       <span>{t("dashboard.quantityLabel")} {segment.quantity}</span>
-      <span>{t("dashboard.investedLabel")} {currencyValueInline(segment.costBasis, baseCurrency)}</span>
-      <span>{t("dashboard.marketValueLabel")} {currencyValueInline(segment.marketValue, baseCurrency)}</span>
+      <span>{t("dashboard.investedLabel")} {currencyValueInline(t, segment.costBasis, baseCurrency)}</span>
+      <span>{t("dashboard.marketValueLabel")} {currencyValueInline(t, segment.marketValue, baseCurrency)}</span>
     </div>
   );
 }
