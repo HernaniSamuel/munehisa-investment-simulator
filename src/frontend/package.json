@@ -13,9 +13,11 @@
   "dependencies": {
     "@react-router/node": "8.0.0",
     "d3": "^7.9.0",
+    "i18next": "^26.3.6",
     "isbot": "^5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-i18next": "^17.0.11",
     "react-router": "8.0.0",
     "serve": "^14.2.4"
   },
