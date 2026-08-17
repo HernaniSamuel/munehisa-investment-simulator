@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  data-service:
+    build:
+      context: ../src/data-service
+    container_name: data-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8001"
+
+  backend:
+    build:
+      context: ../src/backend
+    container_name: backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Internal-network coordinates - not deployment choices, so they're set here
+      # rather than left for .env to get wrong.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      DATA_SERVICE_BASE_URL: http://data-service:8001
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      data-service:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

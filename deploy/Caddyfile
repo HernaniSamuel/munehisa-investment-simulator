@@ -1,0 +1,7 @@
+{
+	email {$CADDY_ACME_EMAIL}
+}
+
+{$DUCKDNS_DOMAIN} {
+	reverse_proxy backend:8000
+}
