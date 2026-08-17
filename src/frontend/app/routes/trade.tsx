@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import type { Route } from "./+types/trade";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
+import { LanguageSwitcher } from "~/components/LanguageSwitcher";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { CurrencyValue } from "~/components/CurrencyValue";
 import { useAuth } from "~/lib/auth-context";
@@ -28,9 +30,10 @@ import {
   isAbbreviatedNumber,
 } from "~/lib/format";
 import { FinancialChart, sumiTheme, zankyoTheme, type Bar } from "~/lib/chart";
+import i18n from "~/lib/i18n";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Trade — Munehisa" }];
+  return [{ title: i18n.t("trade.metaTitle") }];
 }
 
 export default function Trade() {
@@ -85,6 +88,7 @@ type HoldingDisplay = {
 };
 
 function TradeScreen() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const tickerParam = searchParams.get("ticker");
@@ -92,7 +96,10 @@ function TradeScreen() {
 
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [positionsData, setPositionsData] = useState<PositionsResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Raw error data rather than pre-formatted text, so the banner re-resolves
+  // through t() on every render, including after a language switch while
+  // it's still on screen.
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const [query, setQuery] = useState("");
@@ -125,6 +132,10 @@ function TradeScreen() {
     setToasts((prev) => prev.filter((toast) => toast.id !== toastId));
   }
 
+  function toastForError(err: unknown, fallbackKey: string) {
+    addToast(err instanceof ApiError ? err.message : t(fallbackKey));
+  }
+
   async function loadAsset(ticker: string) {
     if (!user || !id) return;
     // Closes the suggestion list the moment a result is clicked, regardless
@@ -140,11 +151,11 @@ function TradeScreen() {
       setMode("buy");
       setQuantity("");
       if (asset.cashBalance.wasConverted) {
-        addToast(`Cash balance converted to ${asset.cashBalance.currency} for this trade.`);
+        addToast(t("trade.cashConverted", { currency: asset.cashBalance.currency }));
       }
     } catch (err) {
       setSelectedAsset(null);
-      addToast(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      toastForError(err, "common.somethingWentWrong");
     } finally {
       setAssetLoading(false);
     }
@@ -158,7 +169,7 @@ function TradeScreen() {
         setPositionsData(positions);
       })
       .catch((err) => {
-        setLoadError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+        setLoadError(err);
       });
 
     if (tickerParam) {
@@ -192,7 +203,7 @@ function TradeScreen() {
         .catch((err) => {
           if (searchRequestIdRef.current !== requestId) return;
           setSearchResults([]);
-          addToast(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+          toastForError(err, "common.somethingWentWrong");
         })
         .finally(() => {
           if (searchRequestIdRef.current === requestId) setSearching(false);
@@ -307,7 +318,10 @@ function TradeScreen() {
     setMode(newQuantity === 0 ? "buy" : tradeMode);
     setQuantity("");
     addToast(
-      `${tradeMode === "buy" ? "Bought" : "Sold"} ${submittedQuantity} share${submittedQuantity === 1 ? "" : "s"} of ${ticker}.`
+      t(tradeMode === "buy" ? "trade.tradeToastBuy" : "trade.tradeToastSell", {
+        count: submittedQuantity,
+        ticker,
+      })
     );
   }
 
@@ -325,7 +339,7 @@ function TradeScreen() {
       const response = await apiCall(id, { ticker: selectedAsset.ticker, quantity: parsedQuantity }, user.token);
       handleTradeSuccess(response, parsedQuantity, mode, selectedAsset.ticker);
     } catch (err) {
-      addToast(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      toastForError(err, "common.somethingWentWrong");
     } finally {
       setSubmitting(false);
     }
@@ -341,9 +355,13 @@ function TradeScreen() {
     <main className="relative flex min-h-screen flex-col overflow-y-auto bg-paper px-4 py-4 lg:h-screen lg:overflow-hidden">
       <div className="washi-texture" aria-hidden="true" />
       <div className="relative flex flex-1 flex-col gap-4 overflow-visible lg:overflow-hidden">
-        {status === "loading" && <p className="font-mono text-sm text-muted">Loading simulation…</p>}
+        {status === "loading" && <p className="font-mono text-sm text-muted">{t("dashboard.loadingSimulation")}</p>}
 
-        {status === "error" && <Banner tone="error">{loadError}</Banner>}
+        {status === "error" && (
+          <Banner tone="error">
+            {loadError instanceof ApiError ? loadError.message : t("common.somethingWentWrong")}
+          </Banner>
+        )}
 
         {status === "ready" && simulation && (
           <>
@@ -395,7 +413,7 @@ function TradeScreen() {
                   <TradeChartPanel bars={bars} />
                 ) : assetLoading ? (
                   <div className="flex flex-1 items-center justify-center border border-ink/10 bg-panel p-10">
-                    <p className="font-mono text-sm text-muted">Loading asset…</p>
+                    <p className="font-mono text-sm text-muted">{t("trade.loadingAsset")}</p>
                   </div>
                 ) : (
                   <EmptySelectionState />
@@ -412,12 +430,16 @@ function TradeScreen() {
 }
 
 function TradeHeader({ simulationId }: { simulationId: string }) {
+  const { t } = useTranslation();
   return (
-    <header className="flex items-center gap-4">
-      <Link to={`/simulations/${simulationId}`} className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
-        ← Back
-      </Link>
-      <h1 className="font-display text-xl font-bold text-ink">Trade assets</h1>
+    <header className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4">
+        <Link to={`/simulations/${simulationId}`} className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
+          {t("trade.back")}
+        </Link>
+        <h1 className="font-display text-xl font-bold text-ink">{t("trade.tradeAssets")}</h1>
+      </div>
+      <LanguageSwitcher />
     </header>
   );
 }
@@ -437,24 +459,25 @@ function SearchPanel({
   resultsDismissed: boolean;
   onSelect: (ticker: string) => void;
 }) {
+  const { t } = useTranslation();
   const trimmed = query.trim();
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Search</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("trade.search")}</h2>
       <div className="mt-3">
         <TextField
           id="asset-search"
-          label="Ticker or name"
-          placeholder="e.g. AAPL"
+          label={t("trade.tickerOrName")}
+          placeholder={t("trade.tickerPlaceholder")}
           autoComplete="off"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
         />
       </div>
       <div className="mt-4 flex flex-col gap-1.5" data-testid="search-results">
-        {searching && <p className="font-mono text-xs text-muted">Searching…</p>}
+        {searching && <p className="font-mono text-xs text-muted">{t("trade.searching")}</p>}
         {!searching && !resultsDismissed && trimmed.length >= MIN_QUERY_LENGTH && results.length === 0 && (
-          <p className="font-mono text-xs text-muted">No matches.</p>
+          <p className="font-mono text-xs text-muted">{t("trade.noMatches")}</p>
         )}
         {results.map((result) => (
           <button
@@ -508,6 +531,7 @@ function AssetInfoCard({
   holding: HoldingDisplay | null;
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   return (
     <div className="border border-ink/10 bg-panel p-5">
       <div className="flex items-baseline justify-between">
@@ -520,7 +544,7 @@ function AssetInfoCard({
       <div className="mt-4 grid grid-cols-2 gap-4" data-testid="holding-stats-grid">
         <HoldingStat
           testId="holding-quantity"
-          label="Quantity"
+          label={t("trade.quantity")}
           value={
             <CurrencyValue
               abbreviated={abbreviateNumber(holding?.quantity ?? 0, undefined)}
@@ -530,7 +554,7 @@ function AssetInfoCard({
         />
         <HoldingStat
           testId="holding-market-value"
-          label="Market value"
+          label={t("trade.marketValue")}
           value={
             holding?.marketValue != null ? (
               <CurrencyValue
@@ -544,7 +568,7 @@ function AssetInfoCard({
         />
         <HoldingStat
           testId="holding-current-price"
-          label="Current price"
+          label={t("trade.currentPrice")}
           value={
             holding?.currentPrice != null ? (
               <CurrencyValue
@@ -558,7 +582,7 @@ function AssetInfoCard({
         />
         <HoldingStat
           testId="holding-gain-loss"
-          label="Gain / loss"
+          label={t("trade.gainLoss")}
           value={holding?.gainPercent != null ? formatPercent(holding.gainPercent) : "—"}
           positive={holding?.gainAmount != null && holding.gainAmount >= 0}
         />
@@ -568,11 +592,12 @@ function AssetInfoCard({
 }
 
 function TradeChartPanel({ bars }: { bars: Bar[] }) {
+  const { t } = useTranslation();
   const { theme } = useTheme();
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Chart</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("trade.chart")}</h2>
       {/* min-h-0 lets this shrink below its content's natural height inside the
           flex column, which is what lets FinancialChart's ResizeObserver-based
           auto-sizing fill the actual remaining space instead of the panel
@@ -590,9 +615,10 @@ function TradeChartPanel({ bars }: { bars: Bar[] }) {
 }
 
 function EmptySelectionState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-1 items-center justify-center border border-ink/10 bg-panel p-10">
-      <p className="font-mono text-sm text-muted">Search for an asset to begin trading.</p>
+      <p className="font-mono text-sm text-muted">{t("trade.emptySelection")}</p>
     </div>
   );
 }
@@ -622,6 +648,7 @@ function TradeForm({
   onMax: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const { t } = useTranslation();
   const parsedQuantity = Number(quantity);
   const validQuantity = quantity !== "" && Number.isInteger(parsedQuantity) && parsedQuantity > 0;
   const estimatedAmount = validQuantity ? parsedQuantity * currentPrice : 0;
@@ -635,7 +662,7 @@ function TradeForm({
 
   return (
     <form onSubmit={onSubmit} className="border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Trade</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("trade.tradeTitle")}</h2>
 
       <div className="mt-3 flex gap-2">
         <Button
@@ -644,7 +671,7 @@ function TradeForm({
           onClick={() => onModeChange("buy")}
           disabled={submitting}
         >
-          Buy
+          {t("trade.buy")}
         </Button>
         <Button
           type="button"
@@ -652,7 +679,7 @@ function TradeForm({
           onClick={() => onModeChange("sell")}
           disabled={submitting || sellDisabled}
         >
-          Sell
+          {t("trade.sell")}
         </Button>
       </div>
 
@@ -660,7 +687,7 @@ function TradeForm({
         <div className="flex-1">
           <TextField
             id="trade-quantity"
-            label="Quantity"
+            label={t("trade.quantity")}
             type="number"
             min="1"
             max={maxQuantity}
@@ -676,13 +703,13 @@ function TradeForm({
           disabled={submitting}
           className="border border-ink/30 px-3 py-2.5 font-mono text-[11px] uppercase tracking-[.1em] text-ink"
         >
-          Max
+          {t("trade.max")}
         </button>
       </div>
 
       <div className="mt-4 flex flex-col gap-1 font-mono text-sm">
         <p className="text-ink">
-          {mode === "buy" ? "Estimated cost" : "Estimated proceeds"}:{" "}
+          {mode === "buy" ? t("trade.estimatedCost") : t("trade.estimatedProceeds")}:{" "}
           <CurrencyValue
             abbreviated={formatAssetCurrency(estimatedAmount, asset.currency)}
             exact={isAbbreviatedCurrency(estimatedAmount) ? formatAssetCurrencyExact(estimatedAmount, asset.currency) : null}
@@ -691,7 +718,7 @@ function TradeForm({
         <p className={affordable ? "text-muted" : "text-vermilion"}>
           {mode === "buy" ? (
             <>
-              Cash available:{" "}
+              {t("trade.cashAvailable")}{" "}
               <CurrencyValue
                 abbreviated={formatAssetCurrency(asset.cashBalance.amount, asset.currency)}
                 exact={
@@ -702,14 +729,20 @@ function TradeForm({
               />
             </>
           ) : (
-            `Held: ${heldQuantity} share${heldQuantity === 1 ? "" : "s"}`
+            t("trade.held", { count: heldQuantity })
           )}
         </p>
       </div>
 
       <div className="mt-6">
         <Button type="submit" disabled={!canSubmit}>
-          {submitting ? (mode === "buy" ? "Buying…" : "Selling…") : mode === "buy" ? "Buy shares" : "Sell shares"}
+          {submitting
+            ? mode === "buy"
+              ? t("trade.buying")
+              : t("trade.selling")
+            : mode === "buy"
+              ? t("trade.buyShares")
+              : t("trade.sellShares")}
         </Button>
       </div>
     </form>

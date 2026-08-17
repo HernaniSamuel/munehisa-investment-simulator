@@ -19,6 +19,7 @@ import {
   formatCurrencyExact,
   formatNumberExact,
 } from "~/lib/format";
+import i18n from "~/lib/i18n";
 import Trade from "./trade";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -783,5 +784,19 @@ describe("chart", () => {
 
     const candle = await screen.findByTestId("candle");
     expect(candle.querySelector("rect")).toHaveAttribute("fill", "#57E3D0");
+  });
+});
+
+describe("locale", () => {
+  it("renders in pt-BR when that's the active locale", async () => {
+    mockLoadSuccess();
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderTrade();
+    await screen.findByRole("heading", { name: "Negociar ativos" });
+
+    expect(screen.getByText("Buscar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ticker ou nome")).toBeInTheDocument();
   });
 });

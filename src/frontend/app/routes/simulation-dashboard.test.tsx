@@ -16,6 +16,7 @@ import {
   type TransactionType,
 } from "~/lib/api";
 import { formatCurrency, formatCurrencyExact, formatPercent } from "~/lib/format";
+import i18n from "~/lib/i18n";
 import SimulationDashboard from "./simulation-dashboard";
 
 // RTL's getByText/toHaveTextContent normalize a DOM node's own whitespace
@@ -1142,5 +1143,20 @@ describe("advance month", () => {
 
     expect(await screen.findByText("Request failed (500)")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("locale", () => {
+  it("renders in pt-BR when that's the active locale", async () => {
+    mockLoadSuccess();
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    expect(screen.getByText("Alocação")).toBeInTheDocument();
+    expect(screen.getByText("Histórico de transações")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Avançar mês" })).toBeInTheDocument();
   });
 });
