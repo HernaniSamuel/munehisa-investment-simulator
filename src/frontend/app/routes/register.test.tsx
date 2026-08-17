@@ -100,4 +100,21 @@ describe("Register", () => {
       resolveRegister();
     });
   });
+
+  it("gives the password and confirm-password fields independent visibility toggles", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Register />, { route: "/register" });
+
+    const passwordInput = screen.getByLabelText("Password");
+    const confirmInput = screen.getByLabelText("Confirm password");
+    const passwordToggle = passwordInput.parentElement!.querySelector("button")!;
+    const confirmToggle = confirmInput.parentElement!.querySelector("button")!;
+
+    await user.click(passwordToggle);
+
+    expect(passwordInput).toHaveAttribute("type", "text");
+    expect(passwordToggle).toHaveAttribute("aria-label", "Hide password");
+    expect(confirmInput).toHaveAttribute("type", "password");
+    expect(confirmToggle).toHaveAttribute("aria-label", "Show password");
+  });
 });
