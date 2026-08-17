@@ -16,7 +16,17 @@ function isSupportedLocale(value: string | null): value is Locale {
 // itself is never written to storage (see setLocale), so a fresh visit with
 // no stored preference re-detects from navigator.language every time rather
 // than freezing whatever was first observed.
+//
+// This module is imported at the top of root.tsx and runs at module-eval
+// time, before any component mounts. The app itself is SPA-only
+// (react-router.config.ts sets ssr: false), but React Router's dev server
+// still evaluates the route module graph once in a plain Node context (no
+// window/localStorage/navigator) to serve the initial document - so this
+// has to tolerate running outside a browser, unlike ThemeProvider's
+// equivalent check, which is safe inside a useEffect.
 export function detectInitialLocale(): Locale {
+  if (typeof localStorage === "undefined" || typeof navigator === "undefined") return "en";
+
   const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
   if (isSupportedLocale(stored)) return stored;
 
