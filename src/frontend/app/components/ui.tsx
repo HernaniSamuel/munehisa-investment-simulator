@@ -75,31 +75,41 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
 );
 TextField.displayName = "TextField";
 
+// The eye is drawn in `ink` (not `currentColor`) so it stays high-contrast
+// against the input in both themes: ink is dark in Sumi (light paper) and
+// light in Zankyo (dark paper) - see app.css's [data-theme="zankyo"] token
+// overrides. The `panel` disc behind it gives the icon its own backdrop so
+// it reads as a distinct, clickable badge rather than blending into the
+// input border.
 function EyeIcon() {
   return (
-    <svg viewBox="0 0 20 14" width="16" height="16" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" className="fill-panel transition-colors group-hover:fill-ink/15" />
       <path
-        d="M1 7C2.6 4 6 1.5 10 1.5C14 1.5 17.4 4 19 7C17.4 10 14 12.5 10 12.5C6 12.5 2.6 10 1 7Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
+        d="M4 12C6 8.5 9 6.5 12 6.5C15 6.5 18 8.5 20 12C18 15.5 15 17.5 12 17.5C9 17.5 6 15.5 4 12Z"
+        className="stroke-ink"
+        strokeWidth="1.5"
+        fill="none"
         strokeLinejoin="round"
       />
-      <circle cx="10" cy="7" r="2.4" fill="currentColor" />
+      <circle cx="12" cy="12" r="2.6" className="fill-ink" />
     </svg>
   );
 }
 
 function EyeOffIcon() {
   return (
-    <svg viewBox="0 0 20 14" width="16" height="16" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" className="fill-panel transition-colors group-hover:fill-ink/15" />
       <path
-        d="M1 7C2.6 4 6 1.5 10 1.5C14 1.5 17.4 4 19 7C17.4 10 14 12.5 10 12.5C6 12.5 2.6 10 1 7Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
+        d="M4 12C6 8.5 9 6.5 12 6.5C15 6.5 18 8.5 20 12C18 15.5 15 17.5 12 17.5C9 17.5 6 15.5 4 12Z"
+        className="stroke-ink"
+        strokeWidth="1.5"
+        fill="none"
         strokeLinejoin="round"
       />
-      <circle cx="10" cy="7" r="2.4" fill="currentColor" />
-      <line x1="2" y1="12.5" x2="18" y2="1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="2.6" className="fill-ink" />
+      <line x1="5" y1="17" x2="19" y2="7" className="stroke-ink" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -119,7 +129,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
             type="button"
             onClick={() => setVisible((v) => !v)}
             aria-label={visible ? "Hide password" : "Show password"}
-            className="flex h-full items-center px-3 text-muted transition-colors hover:text-ink focus:outline-none focus:text-ink cursor-pointer"
+            className="group flex h-full items-center px-2.5 rounded-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/40"
           >
             {visible ? <EyeOffIcon /> : <EyeIcon />}
           </button>
