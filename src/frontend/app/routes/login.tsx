@@ -59,7 +59,7 @@ export default function Login() {
           ? `A verification email was already sent. Try again after ${new Date(
               result.resendAvailableAt
             ).toLocaleTimeString()}.`
-          : "Verification email sent. Check your inbox.",
+          : "Verification email sent. Check your inbox. If you don't see it, check your spam or junk folder.",
       });
     } catch (err) {
       setResendStatus({

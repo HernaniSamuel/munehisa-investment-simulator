@@ -52,7 +52,11 @@ describe("Register", () => {
     await fillForm(user);
     await user.click(screen.getByRole("button", { name: "▸▸ Create account" }));
 
-    expect(await screen.findByText(/Login page: Account created\. Check your inbox/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /Login page: Account created\. Check your inbox to verify your email before signing in\. If you don't see it, check your spam or junk folder\./
+      )
+    ).toBeInTheDocument();
     expect(authApi.register).toHaveBeenCalledWith({
       name: "Ada Lovelace",
       email: "ada@example.com",

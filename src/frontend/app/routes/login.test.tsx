@@ -80,7 +80,11 @@ describe("Login", () => {
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.click(screen.getByRole("button", { name: "Resend verification email" }));
 
-    expect(await screen.findByText("Verification email sent. Check your inbox.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Verification email sent. Check your inbox. If you don't see it, check your spam or junk folder."
+      )
+    ).toBeInTheDocument();
   });
 
   it("shows an error when resending without an email first", async () => {

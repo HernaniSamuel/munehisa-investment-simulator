@@ -30,7 +30,8 @@ export default function Register() {
       await authApi.register({ name, email, password });
       navigate("/login", {
         state: {
-          message: "Account created. Check your inbox to verify your email before signing in.",
+          message:
+            "Account created. Check your inbox to verify your email before signing in. If you don't see it, check your spam or junk folder.",
         },
       });
     } catch (err) {
