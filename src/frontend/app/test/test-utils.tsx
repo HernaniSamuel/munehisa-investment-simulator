@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { vi } from "vitest";
 import { AuthProvider } from "~/lib/auth-context";
 import { ThemeProvider, type Theme } from "~/lib/theme-context";
+import { LOCALE_STORAGE_KEY, type Locale } from "~/lib/i18n";
 
 export const STORAGE_KEY = "munehisa.auth";
 export const THEME_STORAGE_KEY = "munehisa.theme";
@@ -61,6 +62,17 @@ export function seedAuthenticatedUser(overrides: { name?: string; token?: string
 // without going through a Settings click.
 export function seedTheme(theme: Theme) {
   localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+// Seeds localStorage the same way setLocale() does, so rendering afterwards
+// hydrates as already having an explicit language preference without going
+// through a LanguageSwitcher click. Doesn't itself call i18n.changeLanguage -
+// detectInitialLocale() only runs once at module init, so this only affects
+// a render that re-initializes i18n (or asserts on the stored value itself);
+// tests that need the active language switched should also call
+// i18n.changeLanguage(locale) or interact with LanguageSwitcher directly.
+export function seedLocale(locale: Locale) {
+  localStorage.setItem(LOCALE_STORAGE_KEY, locale);
 }
 
 // Renders a route component wrapped the way root.tsx wires it in the real

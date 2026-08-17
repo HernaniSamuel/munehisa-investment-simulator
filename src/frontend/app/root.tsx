@@ -6,10 +6,13 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { useTranslation } from "react-i18next";
 
 import type { Route } from "./+types/root";
 import { AuthProvider } from "~/lib/auth-context";
 import { ThemeProvider } from "~/lib/theme-context";
+// Side-effect import: initializes i18next before anything below renders.
+import "~/lib/i18n";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -30,8 +33,9 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const { i18n } = useTranslation();
   return (
-    <html lang="en">
+    <html lang={i18n.language}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -58,15 +62,16 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  const { t } = useTranslation();
+  let message = t("root.errorBoundary.oops");
+  let details = t("root.errorBoundary.unexpectedError");
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
+    message = error.status === 404 ? t("root.errorBoundary.notFoundTitle") : t("root.errorBoundary.errorTitle");
     details =
       error.status === 404
-        ? "The requested page could not be found."
+        ? t("root.errorBoundary.notFoundMessage")
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
