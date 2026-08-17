@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -35,30 +36,100 @@ Button.displayName = "Button";
 type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   error?: string;
+  trailing?: ReactNode;
 };
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  ({ label, id, error, className = "", ...props }, ref) => (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={id}
-        className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
-      >
-        {label}
-      </label>
+  ({ label, id, error, trailing, className = "", ...props }, ref) => {
+    const input = (
       <input
         ref={ref}
         id={id}
         className={`border px-3 py-2.5 font-sans text-ink placeholder:text-muted/60 focus:outline-none ${
           error ? "border-vermilion" : "border-ink/15 focus:border-vermilion"
-        } bg-paper ${className}`}
+        } bg-paper ${trailing ? "pr-10" : ""} ${className}`}
         {...props}
       />
-      {error && <p className="font-mono text-[11px] text-vermilion">{error}</p>}
-    </div>
-  )
+    );
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor={id}
+          className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
+        >
+          {label}
+        </label>
+        {trailing ? (
+          <div className="relative">
+            {input}
+            <div className="absolute inset-y-0 right-0 flex items-center">{trailing}</div>
+          </div>
+        ) : (
+          input
+        )}
+        {error && <p className="font-mono text-[11px] text-vermilion">{error}</p>}
+      </div>
+    );
+  }
 );
 TextField.displayName = "TextField";
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 20 14" width="16" height="16" fill="none" aria-hidden="true">
+      <path
+        d="M1 7C2.6 4 6 1.5 10 1.5C14 1.5 17.4 4 19 7C17.4 10 14 12.5 10 12.5C6 12.5 2.6 10 1 7Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="7" r="2.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 20 14" width="16" height="16" fill="none" aria-hidden="true">
+      <path
+        d="M1 7C2.6 4 6 1.5 10 1.5C14 1.5 17.4 4 19 7C17.4 10 14 12.5 10 12.5C6 12.5 2.6 10 1 7Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="7" r="2.4" fill="currentColor" />
+      <line x1="2" y1="12.5" x2="18" y2="1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+type PasswordFieldProps = Omit<TextFieldProps, "type" | "trailing">;
+
+export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
+  (props, ref) => {
+    const [visible, setVisible] = useState(false);
+
+    return (
+      <TextField
+        ref={ref}
+        type={visible ? "text" : "password"}
+        trailing={
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? "Hide password" : "Show password"}
+            className="flex h-full items-center px-3 text-muted transition-colors hover:text-ink focus:outline-none focus:text-ink cursor-pointer"
+          >
+            {visible ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        }
+        {...props}
+      />
+    );
+  }
+);
+PasswordField.displayName = "PasswordField";
 
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
   label: string;

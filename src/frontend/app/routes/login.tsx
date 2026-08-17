@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, type Location } from "react-router";
 import type { Route } from "./+types/login";
 import { AuthShell } from "~/components/AuthShell";
-import { Banner, Button, TextField } from "~/components/ui";
+import { Banner, Button, PasswordField, TextField } from "~/components/ui";
 import { useAuth } from "~/lib/auth-context";
 import { ApiError, authApi } from "~/lib/api";
 
@@ -87,10 +87,9 @@ export default function Login() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <TextField
+        <PasswordField
           id="password"
           label="Password"
-          type="password"
           autoComplete="current-password"
           required
           value={password}
