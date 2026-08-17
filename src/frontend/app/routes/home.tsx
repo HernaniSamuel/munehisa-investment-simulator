@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import type { Route } from "./+types/home";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import {
@@ -10,17 +11,19 @@ import {
   buttonBaseClasses,
   buttonVariantClasses,
 } from "~/components/ui";
+import { LanguageSwitcher } from "~/components/LanguageSwitcher";
 import { ToastStack, type ToastItem } from "~/components/Toast";
 import { Tooltip } from "~/components/Tooltip";
 import { CurrencyValue } from "~/components/CurrencyValue";
 import { useAuth } from "~/lib/auth-context";
 import { ApiError, simulationApi, type Simulation } from "~/lib/api";
 import { formatCurrency, formatCurrencyExact, formatMonthYear, isAbbreviatedCurrency, truncateName } from "~/lib/format";
+import i18n from "~/lib/i18n";
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Munehisa" },
-    { name: "description", content: "Munehisa investment simulator" },
+    { name: "description", content: i18n.t("home.metaDescription") },
   ];
 }
 
@@ -37,10 +40,14 @@ function genToastId(): string {
 }
 
 function SimulationListScreen() {
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [simulations, setSimulations] = useState<Simulation[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Raw error data rather than pre-formatted text, so the banner re-resolves
+  // through t() on every render, including after a language switch while
+  // it's still on screen.
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Simulation | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
@@ -52,9 +59,7 @@ function SimulationListScreen() {
       .list(user.token)
       .then(setSimulations)
       .catch((err) => {
-        setLoadError(
-          err instanceof ApiError ? err.message : "Something went wrong. Please try again."
-        );
+        setLoadError(err);
       });
   }, [user]);
 
@@ -85,7 +90,7 @@ function SimulationListScreen() {
   function handleDeleted(simulation: Simulation) {
     setSimulations((prev) => (prev ? prev.filter((s) => s.id !== simulation.id) : prev));
     setDeleteTarget(null);
-    addToast(`"${truncateName(simulation.name)}" was permanently deleted.`);
+    addToast(t("home.deletedToast", { name: truncateName(simulation.name) }));
   }
 
   // "YYYY-MM" YearMonth strings sort lexicographically the same as
@@ -119,39 +124,44 @@ function SimulationListScreen() {
             <div>
               <h1 className="font-display text-xl font-bold text-ink">Munehisa</h1>
               <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted">
-                Investment simulator
+                {t("home.tagline")}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <LanguageSwitcher />
             {populated && (
               <Button type="button" onClick={() => setCreateModalOpen(true)}>
-                New Simulation
+                {t("home.newSimulation")}
               </Button>
             )}
             <Link to="/settings" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
-              Settings
+              {t("home.settings")}
             </Link>
             <Button variant="ink" onClick={() => setLogoutConfirmOpen(true)}>
-              Log out
+              {t("home.logout")}
             </Button>
           </div>
         </header>
 
         {status === "loading" && (
-          <p className="font-mono text-sm text-muted">Loading simulations…</p>
+          <p className="font-mono text-sm text-muted">{t("home.loadingSimulations")}</p>
         )}
 
-        {status === "error" && <Banner tone="error">{loadError}</Banner>}
+        {status === "error" && (
+          <Banner tone="error">
+            {loadError instanceof ApiError ? loadError.message : t("common.somethingWentWrong")}
+          </Banner>
+        )}
 
         {status === "ready" && sortedSimulations.length === 0 && (
           <div className="flex flex-col items-center gap-6 border border-ink/10 bg-panel p-12 text-center shadow-[0_0_0_3px_#211E18]">
-            <h2 className="font-display text-2xl font-bold text-ink">Welcome, {user?.name}</h2>
-            <p className="font-sans text-name">
-              You don&apos;t have any simulations yet. Create one to get started.
-            </p>
+            <h2 className="font-display text-2xl font-bold text-ink">
+              {t("home.welcome", { name: user?.name })}
+            </h2>
+            <p className="font-sans text-name">{t("home.emptyStateBody")}</p>
             <Button type="button" onClick={() => setCreateModalOpen(true)}>
-              New Simulation
+              {t("home.newSimulation")}
             </Button>
           </div>
         )}
@@ -209,11 +219,14 @@ function SimulationCard({
   onRenamed: (updated: Simulation) => void;
   onRequestDelete: (simulation: Simulation) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(simulation.name);
-  const [error, setError] = useState<string | null>(null);
+  // "blank" or the raw caught error rather than pre-formatted text - see
+  // SimulationListScreen's loadError for why.
+  const [error, setError] = useState<"blank" | unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const displayName = truncateName(simulation.name);
@@ -239,7 +252,7 @@ function SimulationCard({
     if (!user) return;
 
     if (!name.trim()) {
-      setError("Name cannot be blank.");
+      setError("blank");
       return;
     }
 
@@ -250,7 +263,7 @@ function SimulationCard({
       onRenamed(updated);
       setEditing(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -270,7 +283,7 @@ function SimulationCard({
             <div className="flex items-center gap-2">
               <input
                 ref={inputRef}
-                aria-label="Simulation name"
+                aria-label={t("home.simulationNameAria")}
                 className="flex-1 border border-ink/15 bg-paper px-2 py-1.5 font-sans text-ink focus:border-vermilion focus:outline-none"
                 maxLength={255}
                 value={name}
@@ -282,7 +295,7 @@ function SimulationCard({
               />
               <button
                 type="submit"
-                aria-label="Save name"
+                aria-label={t("home.saveNameAria")}
                 disabled={submitting}
                 className="font-mono text-sm text-ink disabled:opacity-50"
               >
@@ -290,7 +303,7 @@ function SimulationCard({
               </button>
               <button
                 type="button"
-                aria-label="Cancel rename"
+                aria-label={t("home.cancelRenameAria")}
                 onClick={cancelEditing}
                 disabled={submitting}
                 className="font-mono text-sm text-vermilion disabled:opacity-50"
@@ -298,7 +311,15 @@ function SimulationCard({
                 ✕
               </button>
             </div>
-            {error && <Banner tone="error">{error}</Banner>}
+            {error != null && (
+              <Banner tone="error">
+                {error === "blank"
+                  ? t("home.nameCannotBeBlank")
+                  : error instanceof ApiError
+                    ? error.message
+                    : t("common.somethingWentWrong")}
+              </Banner>
+            )}
           </form>
         ) : (
           <div className="flex flex-1 items-center justify-between gap-2">
@@ -313,7 +334,7 @@ function SimulationCard({
             )}
             <button
               type="button"
-              aria-label="Edit name"
+              aria-label={t("home.editNameAria")}
               onClick={startEditing}
               className="font-mono text-sm text-muted hover:text-ink"
             >
@@ -325,13 +346,13 @@ function SimulationCard({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Start</p>
+          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{t("home.start")}</p>
           <p className="mt-1 font-display text-sm text-ink">
             {formatMonthYear(simulation.startMonth)}
           </p>
         </div>
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Current</p>
+          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{t("home.current")}</p>
           <p className="mt-1 font-display text-sm text-ink">
             {formatMonthYear(simulation.currentMonth)}
           </p>
@@ -339,7 +360,7 @@ function SimulationCard({
       </div>
 
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Cash balance</p>
+        <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{t("home.cashBalance")}</p>
         <p className="mt-1 font-display text-xl font-bold text-ink">
           <CurrencyValue
             abbreviated={formatCurrency(simulation.cashBalance, simulation.baseCurrency)}
@@ -358,10 +379,10 @@ function SimulationCard({
           onClick={() => navigate(`/simulations/${simulation.id}`)}
           className="flex-1"
         >
-          Open
+          {t("home.open")}
         </Button>
         <Button type="button" variant="ink" onClick={() => onRequestDelete(simulation)}>
-          Delete
+          {t("home.delete")}
         </Button>
       </div>
     </div>
@@ -377,8 +398,9 @@ function DeleteConfirmDialog({
   onCancel: () => void;
   onDeleted: (simulation: Simulation) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const displayName = truncateName(simulation.name);
@@ -409,7 +431,7 @@ function DeleteConfirmDialog({
       await simulationApi.remove(simulation.id, user.token);
       onDeleted(simulation);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -427,7 +449,7 @@ function DeleteConfirmDialog({
     >
       <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="delete-simulation-title" className="font-display text-xl font-bold text-ink">
-          Delete &quot;
+          {t("home.deleteDialogTitlePrefix")}
           {displayName === simulation.name ? (
             displayName
           ) : (
@@ -435,15 +457,15 @@ function DeleteConfirmDialog({
               <span tabIndex={0}>{displayName}</span>
             </Tooltip>
           )}
-          &quot;?
+          {t("home.deleteDialogTitleSuffix")}
         </h3>
-        <p className="mt-2 font-sans text-sm text-name">
-          This permanently deletes this simulation and cannot be undone.
-        </p>
+        <p className="mt-2 font-sans text-sm text-name">{t("home.deleteDialogBody")}</p>
 
-        {error && (
+        {error != null && (
           <div className="mt-4">
-            <Banner tone="error">{error}</Banner>
+            <Banner tone="error">
+              {error instanceof ApiError ? error.message : t("common.somethingWentWrong")}
+            </Banner>
           </div>
         )}
 
@@ -455,10 +477,10 @@ function DeleteConfirmDialog({
             onClick={close}
             disabled={submitting}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" variant="solid" onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Deleting…" : "Delete"}
+            {submitting ? t("home.deleting") : t("home.delete")}
           </Button>
         </div>
       </div>
@@ -473,6 +495,7 @@ function LogoutConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -499,18 +522,16 @@ function LogoutConfirmDialog({
     >
       <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="logout-confirm-title" className="font-display text-xl font-bold text-ink">
-          Log out?
+          {t("home.logoutDialogTitle")}
         </h3>
-        <p className="mt-2 font-sans text-sm text-name">
-          You&apos;ll need to sign in again to continue.
-        </p>
+        <p className="mt-2 font-sans text-sm text-name">{t("home.logoutDialogBody")}</p>
 
         <div className="mt-6 flex justify-end gap-3">
           <Button ref={cancelButtonRef} type="button" variant="primary" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" variant="solid" onClick={onConfirm}>
-            Log out
+            {t("home.logoutConfirm")}
           </Button>
         </div>
       </div>
@@ -525,11 +546,14 @@ function CreateSimulationDialog({
   onCancel: () => void;
   onCreated: (simulation: Simulation) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [baseCurrency, setBaseCurrency] = useState<"BRL" | "USD">("BRL");
   const [startMonth, setStartMonth] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // "nameBlank" | "startMonthRequired" or the raw caught error rather than
+  // pre-formatted text - see SimulationListScreen's loadError for why.
+  const [error, setError] = useState<"nameBlank" | "startMonthRequired" | unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -556,11 +580,11 @@ function CreateSimulationDialog({
     if (!user) return;
 
     if (!name.trim()) {
-      setError("Name cannot be blank.");
+      setError("nameBlank");
       return;
     }
     if (!startMonth) {
-      setError("Start month is required.");
+      setError("startMonthRequired");
       return;
     }
 
@@ -570,7 +594,7 @@ function CreateSimulationDialog({
       const created = await simulationApi.create({ name, baseCurrency, startMonth }, user.token);
       onCreated(created);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -591,16 +615,26 @@ function CreateSimulationDialog({
         className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8"
       >
         <h3 id="create-simulation-title" className="font-display text-xl font-bold text-ink">
-          New simulation
+          {t("home.newSimulationDialogTitle")}
         </h3>
 
         <div className="mt-4 flex flex-col gap-4">
-          {error && <Banner tone="error">{error}</Banner>}
+          {error != null && (
+            <Banner tone="error">
+              {error === "nameBlank"
+                ? t("home.nameCannotBeBlank")
+                : error === "startMonthRequired"
+                  ? t("home.startMonthRequired")
+                  : error instanceof ApiError
+                    ? error.message
+                    : t("common.somethingWentWrong")}
+            </Banner>
+          )}
 
           <TextField
             ref={nameInputRef}
             id="simulation-name"
-            label="Name"
+            label={t("home.nameLabel")}
             type="text"
             required
             maxLength={255}
@@ -611,7 +645,7 @@ function CreateSimulationDialog({
 
           <Select
             id="simulation-currency"
-            label="Base currency"
+            label={t("home.baseCurrencyLabel")}
             value={baseCurrency}
             onChange={(e) => setBaseCurrency(e.target.value as "BRL" | "USD")}
             disabled={submitting}
@@ -625,7 +659,7 @@ function CreateSimulationDialog({
               htmlFor="simulation-start-month"
               className="font-mono text-[10px] uppercase tracking-[.14em] text-muted"
             >
-              Start month
+              {t("home.startMonthLabel")}
             </label>
             <input
               id="simulation-start-month"
@@ -641,10 +675,10 @@ function CreateSimulationDialog({
 
         <div className="mt-6 flex justify-end gap-3">
           <Button type="button" variant="ink" onClick={close} disabled={submitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Creating…" : "Create"}
+            {submitting ? t("home.creating") : t("home.create")}
           </Button>
         </div>
       </form>

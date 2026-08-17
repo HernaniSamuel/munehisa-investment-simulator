@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
   THEME_STORAGE_KEY,
 } from "~/test/test-utils";
 import { ApiError, authApi, userApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import Settings from "./settings";
 
 // deleteAccount is deliberately NOT mocked here (unlike updateName/
@@ -276,5 +277,17 @@ describe("DeleteAccountSection", () => {
 
     expect(await screen.findByText("Login page")).toBeInTheDocument();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("locale", () => {
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderSettings();
+
+    expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Salvar nome" })).toBeInTheDocument();
   });
 });

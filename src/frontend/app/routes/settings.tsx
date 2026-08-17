@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import type { Route } from "./+types/settings";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
+import { LanguageSwitcher } from "~/components/LanguageSwitcher";
 import { useAuth } from "~/lib/auth-context";
 import { useTheme } from "~/lib/theme-context";
 import { ApiError, authApi, userApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Settings — Munehisa" }];
+  return [{ title: i18n.t("settings.metaTitle") }];
 }
 
 export default function Settings() {
@@ -20,6 +23,7 @@ export default function Settings() {
 }
 
 function SettingsScreen() {
+  const { t } = useTranslation();
   const { email } = useAuth();
 
   return (
@@ -32,15 +36,18 @@ function SettingsScreen() {
               設
             </div>
             <div>
-              <h1 className="font-display text-xl font-bold text-ink">Settings</h1>
+              <h1 className="font-display text-xl font-bold text-ink">{t("settings.heading")}</h1>
               <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted">
-                Account
+                {t("settings.account")}
               </p>
             </div>
           </div>
-          <Link to="/" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
-            ← Back
-          </Link>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <Link to="/" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
+              {t("settings.back")}
+            </Link>
+          </div>
         </header>
 
         <ChangeNameSection />
@@ -53,10 +60,14 @@ function SettingsScreen() {
 }
 
 function ChangeNameSection() {
+  const { t } = useTranslation();
   const { user, login } = useAuth();
   const [name, setName] = useState(user?.name ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  // "blank" or the raw caught error rather than pre-formatted text, plus a
+  // separate success flag, so the banner re-resolves through t() on every
+  // render, including after a language switch while it's still on screen.
+  const [error, setError] = useState<"blank" | unknown>(null);
+  const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
@@ -64,21 +75,21 @@ function ChangeNameSection() {
     if (!user) return;
 
     if (!name.trim()) {
-      setError("Name cannot be blank.");
-      setSuccess(null);
+      setError("blank");
+      setSuccess(false);
       return;
     }
 
     setError(null);
-    setSuccess(null);
+    setSuccess(false);
     setSubmitting(true);
     try {
       const result = await userApi.updateName(name, user.token);
       login({ name: result.name, token: user.token });
       setName(result.name);
-      setSuccess("Name updated.");
+      setSuccess(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -86,15 +97,23 @@ function ChangeNameSection() {
 
   return (
     <section className="border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
-      <h2 className="font-display text-xl font-bold text-ink">Name</h2>
+      <h2 className="font-display text-xl font-bold text-ink">{t("settings.nameSectionTitle")}</h2>
 
       <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
-        {error && <Banner tone="error">{error}</Banner>}
-        {success && <Banner tone="success">{success}</Banner>}
+        {error != null && (
+          <Banner tone="error">
+            {error === "blank"
+              ? t("settings.nameCannotBlank")
+              : error instanceof ApiError
+                ? error.message
+                : t("common.somethingWentWrong")}
+          </Banner>
+        )}
+        {success && <Banner tone="success">{t("settings.nameUpdated")}</Banner>}
 
         <TextField
           id="name"
-          label="Name"
+          label={t("settings.nameLabel")}
           type="text"
           autoComplete="name"
           required
@@ -104,7 +123,7 @@ function ChangeNameSection() {
         />
 
         <Button type="submit" disabled={submitting} className="self-start">
-          {submitting ? "Saving…" : "▸▸ Save name"}
+          {submitting ? t("settings.saving") : t("settings.saveName")}
         </Button>
       </form>
     </section>
@@ -112,21 +131,22 @@ function ChangeNameSection() {
 }
 
 function ThemeSection() {
+  const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
 
   return (
     <section className="border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
-      <h2 className="font-display text-xl font-bold text-ink">Theme</h2>
-      <p className="mt-2 font-sans text-sm text-name">Choose the app&apos;s color palette.</p>
+      <h2 className="font-display text-xl font-bold text-ink">{t("settings.themeTitle")}</h2>
+      <p className="mt-2 font-sans text-sm text-name">{t("settings.themeDescription")}</p>
 
-      <div className="mt-4 flex gap-3" role="group" aria-label="Theme">
+      <div className="mt-4 flex gap-3" role="group" aria-label={t("settings.themeTitle")}>
         <Button
           type="button"
           variant={theme === "sumi" ? "primary" : "ink"}
           aria-pressed={theme === "sumi"}
           onClick={() => setTheme("sumi")}
         >
-          Sumi
+          {t("settings.sumi")}
         </Button>
         <Button
           type="button"
@@ -134,7 +154,7 @@ function ThemeSection() {
           aria-pressed={theme === "zankyo"}
           onClick={() => setTheme("zankyo")}
         >
-          Zankyō
+          {t("settings.zankyo")}
         </Button>
       </div>
     </section>
@@ -142,8 +162,14 @@ function ThemeSection() {
 }
 
 function ChangePasswordSection({ email }: { email: string | null }) {
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const { t } = useTranslation();
+  // Raw error/result data rather than pre-formatted text, so the banner
+  // re-resolves through t() on every render, including after a language
+  // switch while it's still on screen.
+  const [error, setError] = useState<unknown>(null);
+  const [success, setSuccess] = useState<
+    { alreadySent: false } | { alreadySent: true; resendAvailableAt: string } | null
+  >(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleClick() {
@@ -155,13 +181,11 @@ function ChangePasswordSection({ email }: { email: string | null }) {
       const result = await authApi.forgotPassword(email);
       setSuccess(
         result
-          ? `A reset email was already sent. Try again after ${new Date(
-              result.resendAvailableAt
-            ).toLocaleTimeString()}.`
-          : "Check your inbox for a link to reset your password."
+          ? { alreadySent: true, resendAvailableAt: result.resendAvailableAt }
+          : { alreadySent: false }
       );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -169,14 +193,24 @@ function ChangePasswordSection({ email }: { email: string | null }) {
 
   return (
     <section className="border border-ink/10 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
-      <h2 className="font-display text-xl font-bold text-ink">Password</h2>
-      <p className="mt-2 font-sans text-sm text-name">
-        We&apos;ll email you a link to set a new password.
-      </p>
+      <h2 className="font-display text-xl font-bold text-ink">{t("settings.passwordTitle")}</h2>
+      <p className="mt-2 font-sans text-sm text-name">{t("settings.passwordDescription")}</p>
 
       <div className="mt-4 flex flex-col gap-4">
-        {error && <Banner tone="error">{error}</Banner>}
-        {success && <Banner tone="success">{success}</Banner>}
+        {error != null && (
+          <Banner tone="error">
+            {error instanceof ApiError ? error.message : t("common.somethingWentWrong")}
+          </Banner>
+        )}
+        {success && (
+          <Banner tone="success">
+            {success.alreadySent
+              ? t("settings.resendAlreadySent", {
+                  time: new Date(success.resendAvailableAt).toLocaleTimeString(),
+                })
+              : t("settings.passwordCheckInbox")}
+          </Banner>
+        )}
 
         <Button
           type="button"
@@ -185,7 +219,7 @@ function ChangePasswordSection({ email }: { email: string | null }) {
           disabled={submitting || !email}
           className="self-start"
         >
-          {submitting ? "Sending…" : "▸▸ Send password reset email"}
+          {submitting ? t("settings.sendingReset") : t("settings.sendResetEmail")}
         </Button>
       </div>
     </section>
@@ -193,11 +227,12 @@ function ChangePasswordSection({ email }: { email: string | null }) {
 }
 
 function DeleteAccountSection() {
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   // Starts true and is cleared on the field's first focus. Chromium-family
   // browsers skip a readonly field when deciding whether to show their
@@ -245,7 +280,7 @@ function DeleteAccountSection() {
       logout();
       navigate("/login", { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -253,13 +288,11 @@ function DeleteAccountSection() {
 
   return (
     <section className="border border-vermilion/30 bg-panel p-8 shadow-[0_0_0_3px_#211E18]">
-      <h2 className="font-display text-xl font-bold text-ink">Delete account</h2>
-      <p className="mt-2 font-sans text-sm text-name">
-        This permanently deletes your account and cannot be undone.
-      </p>
+      <h2 className="font-display text-xl font-bold text-ink">{t("settings.deleteAccountTitle")}</h2>
+      <p className="mt-2 font-sans text-sm text-name">{t("settings.deleteAccountDescription")}</p>
 
       <Button type="button" onClick={openModal} className="mt-4">
-        Delete account
+        {t("settings.deleteAccountTitle")}
       </Button>
 
       {modalOpen && (
@@ -277,15 +310,15 @@ function DeleteAccountSection() {
             className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8"
           >
             <h3 id="delete-account-title" className="font-display text-xl font-bold text-ink">
-              Confirm deletion
+              {t("settings.confirmDeletionTitle")}
             </h3>
-            <p className="mt-2 font-sans text-sm text-name">
-              Enter your password to permanently delete your account.
-            </p>
+            <p className="mt-2 font-sans text-sm text-name">{t("settings.confirmDeletionBody")}</p>
 
-            {error && (
+            {error != null && (
               <div className="mt-4">
-                <Banner tone="error">{error}</Banner>
+                <Banner tone="error">
+                  {error instanceof ApiError ? error.message : t("common.somethingWentWrong")}
+                </Banner>
               </div>
             )}
 
@@ -293,7 +326,7 @@ function DeleteAccountSection() {
               <TextField
                 ref={passwordInputRef}
                 id="delete-password"
-                label="Password"
+                label={t("settings.passwordFieldLabel")}
                 type="password"
                 autoComplete="new-password"
                 readOnly={passwordReadOnly}
@@ -306,10 +339,10 @@ function DeleteAccountSection() {
 
             <div className="mt-6 flex justify-end gap-3">
               <Button type="button" variant="primary" onClick={closeModal} disabled={submitting}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" variant="solid" disabled={submitting || !password}>
-                {submitting ? "Deleting…" : "Delete account"}
+                {submitting ? t("settings.deleting") : t("settings.deleteAccountConfirm")}
               </Button>
             </div>
           </form>
