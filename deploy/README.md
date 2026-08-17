@@ -77,8 +77,13 @@ On the VM:
 git clone <this repo> && cd <this repo>/deploy
 cp .env.example .env
 nano .env   # fill in every value - see comments in the file for how to generate secrets
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
+
+`backend` and `data-service` reference pre-built images on `ghcr.io` rather than building
+locally (see "Set up automatic deploys" below) - the free VM has far less CPU/RAM than a CI
+runner, so building on it was only ever a placeholder.
 
 `DUCKDNS_DOMAIN` in `.env` must match the subdomain from step 4 - Caddy uses it both to route
 traffic and to request the Let's Encrypt certificate for it.
@@ -107,3 +112,29 @@ knowing when the service goes down - not required to keep the server alive.
 2. Add an HTTP(s) monitor for `https://<your-subdomain>.duckdns.org/actuator/health`.
 3. Set the check interval to **5 minutes** (the shortest on UptimeRobot's free plan) so a
    downtime alert arrives promptly.
+
+## 8. Set up automatic deploys
+
+`.github/workflows/deploy-backend.yml` tests, builds, and pushes `backend` and `data-service`
+images to GHCR on every push to `main` that touches `src/backend/**`, `src/data-service/**`, or
+`deploy/**`, then SSHes into the VM to pull and restart them. Two one-time steps make this work:
+
+1. **Repository secrets** (Settings → Secrets and variables → Actions → New repository secret):
+   - `HETZNER_VM_HOST` - the VM's public IPv4.
+   - `HETZNER_VM_SSH_USER` - `root` (or whichever user owns `~/app/deploy` on the VM).
+   - `HETZNER_VM_SSH_KEY` - the **private** half of a dedicated deploy key, not your personal
+     one. Generate one (`ssh-keygen -t ed25519 -f deploy_key -N ""`) and add its public half to
+     the VM's `~/.ssh/authorized_keys`, ideally restricted to only the deploy command:
+     ```
+     command="cd /root/app/deploy && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
+     ```
+     This way, even if the key material in the GitHub secret ever leaks, it can only run that
+     one command - not open an arbitrary shell.
+2. **Make the GHCR packages public**: the first successful `build-and-push` run creates
+   `ghcr.io/hernanisamuel/munehisa-investment-simulator-backend` and `...-data-service` as
+   **private** packages by default. The VM's `docker compose pull` has no registry credentials,
+   so each package needs its visibility changed to **Public** once (its GitHub page → Package
+   settings → Change visibility) before the first automatic deploy can pull it.
+
+After both are done, pushing to `main` (or running the workflow manually via
+`workflow_dispatch`) deploys automatically - no more manual SSH + rebuild.

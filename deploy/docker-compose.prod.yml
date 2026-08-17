@@ -17,8 +17,7 @@ services:
       retries: 5
 
   data-service:
-    build:
-      context: ../src/data-service
+    image: ghcr.io/hernanisamuel/munehisa-investment-simulator-data-service:latest
     container_name: data-service
     restart: unless-stopped
     env_file:
@@ -27,8 +26,7 @@ services:
       - "8001"
 
   backend:
-    build:
-      context: ../src/backend
+    image: ghcr.io/hernanisamuel/munehisa-investment-simulator-backend:latest
     container_name: backend
     restart: unless-stopped
     env_file:
