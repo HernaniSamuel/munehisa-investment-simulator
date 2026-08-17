@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, authApi, setUnauthorizedHandler, simulationApi, userApi } from "./api";
+import i18n from "./i18n";
 
 function mockFetchOnce(status: number, body?: unknown, contentType = "application/json") {
   const response = {
@@ -83,6 +84,26 @@ describe("api request/error parsing", () => {
     expect(
       (init as RequestInit & { headers: Record<string, string> }).headers.Authorization
     ).toBeUndefined();
+  });
+
+  it("sends an Accept-Language header matching the active locale", async () => {
+    await i18n.changeLanguage("en");
+    mockFetchOnce(200, { name: "A", token: "t" });
+    await authApi.login({ email: "a@b.com", password: "x" });
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(
+      (init as RequestInit & { headers: Record<string, string> }).headers["Accept-Language"]
+    ).toBe("en");
+  });
+
+  it("reflects a locale change in the Accept-Language header of later requests", async () => {
+    await i18n.changeLanguage("pt-BR");
+    mockFetchOnce(200, { name: "A", token: "t" });
+    await authApi.login({ email: "a@b.com", password: "x" });
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(
+      (init as RequestInit & { headers: Record<string, string> }).headers["Accept-Language"]
+    ).toBe("pt-BR");
   });
 
   it("triggers the unauthorized handler on a 401 for a token-bearing request", async () => {

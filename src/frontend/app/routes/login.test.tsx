@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import Login from "./login";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -115,5 +116,16 @@ describe("Login", () => {
 
     expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
     expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
+  });
+
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderWithProviders(<Login />, { route: "/login" });
+
+    expect(screen.getByText("Entrar")).toBeInTheDocument();
+    expect(screen.getByLabelText("E-mail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Entrar" })).toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders, seedAuthenticatedUser, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, simulationApi, type Simulation } from "~/lib/api";
 import { formatCurrency, formatCurrencyExact } from "~/lib/format";
+import i18n from "~/lib/i18n";
 import Home from "./home";
 
 // mirrors simulation-dashboard.test.tsx's money()/exactMoney() helpers.
@@ -548,5 +549,19 @@ describe("create", () => {
     expect(await within(dialog).findByText("name: must not be blank")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Name")).toHaveValue("Broken form");
+  });
+});
+
+describe("locale", () => {
+  it("renders in pt-BR when that's the active locale", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderHome();
+
+    expect(await screen.findByText(/Bem-vindo,/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Configurações" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sair" })).toBeInTheDocument();
   });
 });

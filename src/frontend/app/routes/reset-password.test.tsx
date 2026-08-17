@@ -1,8 +1,9 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders, STORAGE_KEY } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import ResetPassword from "./reset-password";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -72,5 +73,15 @@ describe("ResetPassword", () => {
 
     expect(await screen.findByText("Passwords do not match.")).toBeInTheDocument();
     expect(authApi.resetPassword).not.toHaveBeenCalled();
+  });
+
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderWithProviders(<ResetPassword />, { route: "/reset-password" });
+
+    expect(screen.getByText("Redefinir senha")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Este link de redefinição está sem o token.");
   });
 });

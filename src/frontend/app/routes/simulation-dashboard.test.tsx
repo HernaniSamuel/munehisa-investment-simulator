@@ -16,6 +16,7 @@ import {
   type TransactionType,
 } from "~/lib/api";
 import { formatCurrency, formatCurrencyExact, formatPercent } from "~/lib/format";
+import i18n from "~/lib/i18n";
 import SimulationDashboard from "./simulation-dashboard";
 
 // RTL's getByText/toHaveTextContent normalize a DOM node's own whitespace
@@ -552,6 +553,23 @@ describe("allocation donut", () => {
     expect(tooltips[0]).toHaveTextContent(exactMoney(largePosition.costBasis, sim.baseCurrency));
     expect(tooltips[0]).toHaveTextContent(money(largePosition.marketValue, sim.baseCurrency));
     expect(tooltips[0]).toHaveTextContent(exactMoney(largePosition.marketValue, sim.baseCurrency));
+  });
+
+  it("translates the abbreviated/exact-value wrapper in the slice tooltip in pt-BR", async () => {
+    const largePosition: Position = { ...position1, costBasis: 1_234_567_890 };
+    mockLoadSuccess({ positions: { ...positionsResponse, positions: [largePosition] } });
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    await user.hover(screen.getByRole("img", { name: `${largePosition.ticker} — ${largePosition.assetName}` }));
+    const tooltip = await screen.findByRole("tooltip");
+
+    expect(tooltip).toHaveTextContent(`(exato: ${exactMoney(largePosition.costBasis, sim.baseCurrency)})`);
+    expect(tooltip).not.toHaveTextContent("exact:");
   });
 
   it("the allocation legend scrolls internally while the chart remains visible outside the scroll container", async () => {
@@ -1142,5 +1160,20 @@ describe("advance month", () => {
 
     expect(await screen.findByText("Request failed (500)")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("locale", () => {
+  it("renders in pt-BR when that's the active locale", async () => {
+    mockLoadSuccess();
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    expect(screen.getByText("Alocação")).toBeInTheDocument();
+    expect(screen.getByText("Histórico de transações")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Avançar mês" })).toBeInTheDocument();
   });
 });

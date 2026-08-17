@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import type { Route } from "./+types/simulation-dashboard";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
 import { Banner, Button, TextField, buttonBaseClasses, buttonVariantClasses } from "~/components/ui";
+import { LanguageSwitcher } from "~/components/LanguageSwitcher";
 import { Tooltip } from "~/components/Tooltip";
 import { CurrencyValue } from "~/components/CurrencyValue";
 import { ToastStack, type ToastItem } from "~/components/Toast";
@@ -27,9 +29,10 @@ import {
   truncateName,
 } from "~/lib/format";
 import { computeDonutSegments, type DonutSegment } from "~/lib/donut";
+import i18n from "~/lib/i18n";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Simulation — Munehisa" }];
+  return [{ title: i18n.t("dashboard.metaTitle") }];
 }
 
 export default function SimulationDashboard() {
@@ -56,27 +59,18 @@ function currencyValue(amount: number, baseCurrency: "BRL" | "USD") {
   );
 }
 
-const CASH_BALANCE_EXPLANATION = "The amount available to buy assets.";
-const PORTFOLIO_VALUE_EXPLANATION = "The value currently invested and available for sale.";
-const TOTAL_VALUE_EXPLANATION = "Cash plus invested value.";
-const GAIN_LOSS_EXPLANATION =
-  "Compares invested cost to current market value. Only recalculated when the month advances, not immediately after a buy or sell.";
-const CONTRIBUTE_EXPLANATION = "Adds money to your cash balance, with an optional inflation adjustment.";
-const WITHDRAW_EXPLANATION = "Removes money from your cash balance, with an optional inflation adjustment.";
-const ADVANCE_EXPLANATION = "Moves the simulation forward one month. This cannot be undone.";
-const RESET_EXPLANATION = "Reverts everything done since the last month advance. This cannot be undone.";
-const RESET_DISABLED_EXPLANATION = "Reset unlocks after you advance the month at least once.";
-const SELL_SPLIT_EXPLANATION =
-  "Some sells happen automatically when a stock split forces a sale, not because you sold.";
-
 function SimulationDashboardScreen() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
 
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [positionsData, setPositionsData] = useState<PositionsResponse | null>(null);
   const [transactions, setTransactions] = useState<Transaction[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Raw error data rather than pre-formatted text, so the banner re-resolves
+  // through t() on every render, including after a language switch while
+  // it's still on screen.
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [cashDialogMode, setCashDialogMode] = useState<"deposit" | "withdraw" | null>(null);
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
@@ -95,9 +89,7 @@ function SimulationDashboardScreen() {
         setTransactions(txs);
       })
       .catch((err) => {
-        setLoadError(
-          err instanceof ApiError ? err.message : "Something went wrong. Please try again."
-        );
+        setLoadError(err);
       });
   }, [id, user]);
 
@@ -130,7 +122,7 @@ function SimulationDashboardScreen() {
       prev ? { ...prev, cashBalance: response.cashBalance, totalPatrimony: response.totalPatrimony } : prev
     );
     setCashDialogMode(null);
-    const verb = mode === "deposit" ? "Deposited" : "Withdrew";
+    const verb = mode === "deposit" ? t("dashboard.depositedVerb") : t("dashboard.withdrewVerb");
     addToast(
       <>
         {verb} {currencyValue(response.appliedAmount, simulation?.baseCurrency ?? "BRL")}.
@@ -142,7 +134,7 @@ function SimulationDashboardScreen() {
   function handleResetSuccess(response: Simulation) {
     setSimulation(response);
     setResetDialogOpen(false);
-    addToast("Simulation reset to the last month advance.");
+    addToast(t("dashboard.resetToast"));
     refetchPositions();
     refetchTransactions();
   }
@@ -160,12 +152,12 @@ function SimulationDashboardScreen() {
     );
     setPositionsData((prev) => (prev ? { ...prev, totalAssetValue: response.totalAssetValue } : prev));
     setAdvanceDialogOpen(false);
-    addToast(`Advanced to ${formatMonthYear(response.currentMonth)}.`);
+    addToast(t("dashboard.advancedToast", { month: formatMonthYear(response.currentMonth) }));
     for (const position of response.positions) {
       if (position.dividendReceived > 0) {
         addToast(
           <>
-            {position.assetName} paid a dividend of{" "}
+            {position.assetName} {t("dashboard.paidDividendOf")}{" "}
             {currencyValue(position.dividendReceived, simulation?.baseCurrency ?? "BRL")}.
           </>
         );
@@ -188,10 +180,14 @@ function SimulationDashboardScreen() {
       <div className="washi-texture" aria-hidden="true" />
       <div className="relative mx-auto flex max-w-[1360px] flex-col gap-8">
         {status === "loading" && (
-          <p className="font-mono text-sm text-muted">Loading simulation…</p>
+          <p className="font-mono text-sm text-muted">{t("dashboard.loadingSimulation")}</p>
         )}
 
-        {status === "error" && <Banner tone="error">{loadError}</Banner>}
+        {status === "error" && (
+          <Banner tone="error">
+            {loadError instanceof ApiError ? loadError.message : t("common.somethingWentWrong")}
+          </Banner>
+        )}
 
         {status === "ready" && simulation && positionsData && transactions && (
           <>
@@ -273,12 +269,13 @@ function DashboardHeader({
   onResetClick: () => void;
   onAdvanceClick: () => void;
 }) {
+  const { t } = useTranslation();
   const displayName = truncateName(simulation.name);
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex min-w-0 items-center gap-4">
         <Link to="/" className={`${buttonBaseClasses} ${buttonVariantClasses.ink}`}>
-          ← Back
+          {t("dashboard.back")}
         </Link>
         <div className="min-w-0 flex-1">
           {displayName === simulation.name ? (
@@ -289,23 +286,28 @@ function DashboardHeader({
             </Tooltip>
           )}
           <p className="mt-1 font-mono text-[11px] uppercase tracking-[.14em] text-muted">
-            Started {formatMonthYear(simulation.startMonth)} · {simulation.baseCurrency}
+            {t("dashboard.startedLabel", {
+              month: formatMonthYear(simulation.startMonth),
+              currency: simulation.baseCurrency,
+            })}
           </p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
+        <LanguageSwitcher />
+
         <div className="border border-ink/15 bg-panel px-4 py-2 text-center">
-          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">Current date</p>
+          <p className="font-mono text-[10px] uppercase tracking-[.14em] text-muted">{t("dashboard.currentDate")}</p>
           <p className="mt-1 font-display text-lg font-bold text-ink" data-testid="current-date-value">
             {formatMonthYear(simulation.currentMonth)}
           </p>
         </div>
 
-        <Tooltip label={canReset ? RESET_EXPLANATION : RESET_DISABLED_EXPLANATION}>
+        <Tooltip label={canReset ? t("dashboard.resetExplanation") : t("dashboard.resetDisabledExplanation")}>
           <span className="inline-block">
             <Button type="button" variant="ink" disabled={!canReset} onClick={onResetClick}>
-              ⟲ Reset
+              {t("dashboard.reset")}
             </Button>
           </span>
         </Tooltip>
@@ -314,13 +316,13 @@ function DashboardHeader({
           to={`/simulations/${simulation.id}/trade`}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
         >
-          ⇄ Trade assets
+          {t("dashboard.tradeAssets")}
         </Link>
 
-        <Tooltip label={ADVANCE_EXPLANATION}>
+        <Tooltip label={t("dashboard.advanceExplanation")}>
           <span className="inline-block">
             <Button type="button" onClick={onAdvanceClick}>
-              ▸▸ Advance month
+              {t("dashboard.advanceMonth")}
             </Button>
           </span>
         </Tooltip>
@@ -353,36 +355,37 @@ function CashBalanceCard({
   onContribute: () => void;
   onWithdraw: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="border border-ink/[.12] bg-panel p-5">
-      <Tooltip label={CASH_BALANCE_EXPLANATION}>
+      <Tooltip label={t("dashboard.cashBalanceExplanation")}>
         <div>
-          <StatCardHeader seal="金" label="Cash balance" />
+          <StatCardHeader seal="金" label={t("dashboard.cashBalance")} />
           <p className="mt-3 font-display text-[31px] font-bold text-ink" data-testid="cash-balance-value">
             {currencyValue(simulation.cashBalance, simulation.baseCurrency)}
           </p>
         </div>
       </Tooltip>
       <div className="mt-3 flex gap-2">
-        <Tooltip label={CONTRIBUTE_EXPLANATION}>
+        <Tooltip label={t("dashboard.contributeExplanation")}>
           <span className="inline-block">
             <button
               type="button"
               onClick={onContribute}
               className="border border-ink/30 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[.1em] text-ink"
             >
-              + Contribute
+              {t("dashboard.contribute")}
             </button>
           </span>
         </Tooltip>
-        <Tooltip label={WITHDRAW_EXPLANATION}>
+        <Tooltip label={t("dashboard.withdrawExplanation")}>
           <span className="inline-block">
             <button
               type="button"
               onClick={onWithdraw}
               className="border border-ink/30 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[.1em] text-ink"
             >
-              − Withdraw
+              {t("dashboard.withdraw")}
             </button>
           </span>
         </Tooltip>
@@ -398,15 +401,18 @@ function PortfolioValueCard({
   positionsData: PositionsResponse;
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   return (
     <div className="border border-ink/[.12] bg-panel p-5">
-      <Tooltip label={PORTFOLIO_VALUE_EXPLANATION}>
+      <Tooltip label={t("dashboard.portfolioValueExplanation")}>
         <div>
-          <StatCardHeader seal="株" label="Portfolio value" />
+          <StatCardHeader seal="株" label={t("dashboard.portfolioValue")} />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
             {currencyValue(positionsData.totalAssetValue, baseCurrency)}
           </p>
-          <p className="mt-1 font-mono text-xs text-muted">{positionsData.positions.length} positions</p>
+          <p className="mt-1 font-mono text-xs text-muted">
+            {t("dashboard.positionsCount", { count: positionsData.positions.length })}
+          </p>
         </div>
       </Tooltip>
     </div>
@@ -420,12 +426,13 @@ function TotalValueCard({
   simulation: Simulation;
   positionsData: PositionsResponse;
 }) {
+  const { t } = useTranslation();
   const total = simulation.cashBalance + positionsData.totalAssetValue;
   return (
     <div className="border border-ink/[.12] bg-panel p-5">
-      <Tooltip label={TOTAL_VALUE_EXPLANATION}>
+      <Tooltip label={t("dashboard.totalValueExplanation")}>
         <div>
-          <StatCardHeader seal="総" label="Total value" />
+          <StatCardHeader seal="総" label={t("dashboard.totalValue")} />
           <p className="mt-3 font-display text-[31px] font-bold text-ink">
             {currencyValue(total, simulation.baseCurrency)}
           </p>
@@ -442,12 +449,13 @@ function GainLossCard({
   positionsData: PositionsResponse;
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   const positive = positionsData.totalGainAmount >= 0;
   return (
     <div className="border border-vermilion/30 bg-panel p-5">
-      <Tooltip label={GAIN_LOSS_EXPLANATION}>
+      <Tooltip label={t("dashboard.gainLossExplanation")}>
         <div>
-          <StatCardHeader seal="利" label="Gain / loss" highlight />
+          <StatCardHeader seal="利" label={t("dashboard.gainLoss")} highlight />
           <p
             className={`mt-3 font-display text-[31px] font-bold ${positive ? "text-vermilion" : "text-ink"}`}
             data-testid="gain-loss-value"
@@ -472,26 +480,27 @@ function PositionsTable({
   simulationId: string;
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Positions</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("dashboard.positions")}</h2>
       <div className="mt-3 max-h-[320px] overflow-auto pr-3 pb-3" data-testid="positions-table-scroll">
         <table className="w-full min-w-[640px] border-collapse">
           <thead>
             <tr className="border-b border-ink/30 text-left">
-              <th className="py-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted">Ticker</th>
-              <th className="py-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted">Name</th>
+              <th className="py-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted">{t("dashboard.ticker")}</th>
+              <th className="py-2 font-mono text-[10px] uppercase tracking-[.08em] text-muted">{t("dashboard.name")}</th>
               <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[.08em] text-muted">
-                Qty
+                {t("dashboard.qty")}
               </th>
               <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[.08em] text-muted">
-                Price
+                {t("dashboard.price")}
               </th>
               <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[.08em] text-muted">
-                Market value
+                {t("dashboard.marketValue")}
               </th>
               <th className="py-2 text-right font-mono text-[10px] uppercase tracking-[.08em] text-muted">
-                Gain
+                {t("dashboard.gain")}
               </th>
             </tr>
           </thead>
@@ -501,7 +510,7 @@ function PositionsTable({
                 <td className="py-2 font-mono text-sm font-bold text-ink">{position.ticker}</td>
                 <td className="py-2">
                   <Tooltip
-                    label={`${position.assetName} — opens the trading screen for this asset.`}
+                    label={t("dashboard.assetTooltip", { assetName: position.assetName })}
                   >
                     <Link
                       to={`/simulations/${simulationId}/trade?ticker=${encodeURIComponent(position.ticker)}`}
@@ -539,22 +548,32 @@ function PositionsTable({
 // own to stay open - so a second, nested Tooltip here would be unreachable
 // by mouse. The exact value is appended inline instead: it's still shown on
 // hover, just as more text within the one Tooltip that's already open.
-function currencyValueInline(amount: number, baseCurrency: "BRL" | "USD") {
+//
+// A plain module-level function can't call useTranslation() itself, so the
+// caller's own t() (SliceDetail already has one) is threaded through -
+// same reason the *_EXPLANATION constants and TRANSACTION_LABELS record
+// were removed from this file in favor of inline t() calls.
+function currencyValueInline(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  amount: number,
+  baseCurrency: "BRL" | "USD"
+) {
   const abbreviated = formatCurrency(amount, baseCurrency);
   if (!isAbbreviatedCurrency(amount)) return abbreviated;
-  return `${abbreviated} (exact: ${formatCurrencyExact(amount, baseCurrency)})`;
+  return t("dashboard.abbreviatedWithExact", { value: abbreviated, exact: formatCurrencyExact(amount, baseCurrency) });
 }
 
 function SliceDetail({ segment, baseCurrency }: { segment: DonutSegment; baseCurrency: "BRL" | "USD" }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-0.5">
       <span className="font-bold">
         {segment.assetName} ({segment.ticker})
       </span>
-      <span>Weight: {formatPercent(segment.weight)}</span>
-      <span>Quantity: {segment.quantity}</span>
-      <span>Invested: {currencyValueInline(segment.costBasis, baseCurrency)}</span>
-      <span>Market value: {currencyValueInline(segment.marketValue, baseCurrency)}</span>
+      <span>{t("dashboard.weightLabel")} {formatPercent(segment.weight)}</span>
+      <span>{t("dashboard.quantityLabel")} {segment.quantity}</span>
+      <span>{t("dashboard.investedLabel")} {currencyValueInline(t, segment.costBasis, baseCurrency)}</span>
+      <span>{t("dashboard.marketValueLabel")} {currencyValueInline(t, segment.marketValue, baseCurrency)}</span>
     </div>
   );
 }
@@ -566,6 +585,7 @@ function AllocationDonut({
   positions: Position[];
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   const segments = useMemo(() => computeDonutSegments(positions), [positions]);
   const radius = 60;
   const size = radius * 2 + 20;
@@ -573,7 +593,7 @@ function AllocationDonut({
 
   return (
     <div className="flex max-h-[420px] flex-col border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Allocation</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("dashboard.allocation")}</h2>
       <div className="mt-3 flex shrink-0 items-center justify-center" data-testid="donut-chart">
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden={segments.length === 0}>
           <g transform={`rotate(-90 ${center} ${center})`}>
@@ -589,7 +609,7 @@ function AllocationDonut({
                   strokeDasharray={segment.dashArray}
                   strokeDashoffset={segment.dashOffset}
                   role="img"
-                  aria-label={`${segment.ticker} — ${segment.assetName}`}
+                  aria-label={t("dashboard.sliceAriaLabel", { ticker: segment.ticker, assetName: segment.assetName })}
                   tabIndex={0}
                 />
               </Tooltip>
@@ -605,7 +625,7 @@ function AllocationDonut({
             {positions.length}
           </text>
           <text x={center} y={center + 14} textAnchor="middle" className="fill-muted font-mono text-[9px] uppercase">
-            Positions
+            {t("dashboard.positions")}
           </text>
         </svg>
       </div>
@@ -624,14 +644,6 @@ function AllocationDonut({
   );
 }
 
-const TRANSACTION_LABELS: Record<TransactionType, string> = {
-  DEPOSIT: "Contribution",
-  WITHDRAWAL: "Withdrawal",
-  BUY: "Buy",
-  SELL: "Sell",
-  DIVIDEND: "Dividend",
-};
-
 // Color derives from type, never from amount's sign - amount is always a
 // positive magnitude per the transactions API contract.
 const VERMILION_TYPES: TransactionType[] = ["SELL", "DEPOSIT", "DIVIDEND"];
@@ -643,6 +655,7 @@ function TransactionHistory({
   transactions: Transaction[];
   baseCurrency: "BRL" | "USD";
 }) {
+  const { t } = useTranslation();
   const groups = useMemo(() => {
     const byMonth = new Map<string, Transaction[]>();
     for (const tx of transactions) {
@@ -657,9 +670,9 @@ function TransactionHistory({
 
   return (
     <div className="flex flex-col border border-ink/10 bg-panel p-5">
-      <h2 className="font-display text-lg font-bold text-ink">Transaction history</h2>
+      <h2 className="font-display text-lg font-bold text-ink">{t("dashboard.transactionHistory")}</h2>
       <div className="mt-3 max-h-[400px] overflow-y-auto pr-3" data-testid="transaction-history-scroll">
-        {groups.length === 0 && <p className="font-sans text-sm text-muted">No transactions yet.</p>}
+        {groups.length === 0 && <p className="font-sans text-sm text-muted">{t("dashboard.noTransactions")}</p>}
         {groups.map(([month, txs]) => (
           <div key={month} className="mb-4">
             <h3 className="font-mono text-[11px] uppercase tracking-[.14em] text-muted">
@@ -673,11 +686,11 @@ function TransactionHistory({
                 >
                   <span className="font-sans text-sm text-name">
                     {tx.type === "SELL" ? (
-                      <Tooltip label={SELL_SPLIT_EXPLANATION}>
-                        <span tabIndex={0}>{TRANSACTION_LABELS[tx.type]}</span>
+                      <Tooltip label={t("dashboard.sellSplitExplanation")}>
+                        <span tabIndex={0}>{t(`dashboard.transactionType.${tx.type}`)}</span>
                       </Tooltip>
                     ) : (
-                      TRANSACTION_LABELS[tx.type]
+                      t(`dashboard.transactionType.${tx.type}`)
                     )}
                     {tx.ticker ? ` · ${tx.ticker}` : ""}
                   </span>
@@ -711,10 +724,13 @@ function CashMovementDialog({
   onCancel: () => void;
   onSuccess: (mode: "deposit" | "withdraw", response: CashMovementResponse) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [amount, setAmount] = useState("");
   const [todaysMoney, setTodaysMoney] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // "invalidAmount" or the raw caught error rather than pre-formatted text,
+  // so the banner re-resolves through t() on every render.
+  const [error, setError] = useState<"invalidAmount" | unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const amountInputRef = useRef<HTMLInputElement>(null);
 
@@ -742,7 +758,7 @@ function CashMovementDialog({
 
     const parsedAmount = Number(amount);
     if (!amount || !(parsedAmount > 0)) {
-      setError("Enter an amount greater than 0.");
+      setError("invalidAmount");
       return;
     }
 
@@ -753,13 +769,13 @@ function CashMovementDialog({
       const response = await apiCall(simulationId, { amount: parsedAmount, todaysMoney }, user.token);
       onSuccess(mode, response);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
   }
 
-  const title = mode === "deposit" ? "Contribute" : "Withdraw";
+  const title = mode === "deposit" ? t("dashboard.cashMovementTitleDeposit") : t("dashboard.cashMovementTitleWithdraw");
 
   return (
     <div
@@ -780,12 +796,20 @@ function CashMovementDialog({
         </h3>
 
         <div className="mt-4 flex flex-col gap-4">
-          {error && <Banner tone="error">{error}</Banner>}
+          {error != null && (
+            <Banner tone="error">
+              {error === "invalidAmount"
+                ? t("dashboard.amountGreaterThanZero")
+                : error instanceof ApiError
+                  ? error.message
+                  : t("common.somethingWentWrong")}
+            </Banner>
+          )}
 
           <TextField
             ref={amountInputRef}
             id="cash-movement-amount"
-            label={`Amount (${baseCurrency})`}
+            label={t("dashboard.amountLabel", { currency: baseCurrency })}
             type="number"
             min="0"
             step="0.01"
@@ -802,16 +826,16 @@ function CashMovementDialog({
               onChange={(e) => setTodaysMoney(e.target.checked)}
               disabled={submitting}
             />
-            Remove cumulative inflation
+            {t("dashboard.removeInflation")}
           </label>
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
           <Button type="button" variant="ink" onClick={close} disabled={submitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Submitting…" : title}
+            {submitting ? t("dashboard.submitting") : title}
           </Button>
         </div>
       </form>
@@ -828,8 +852,9 @@ function AdvanceConfirmDialog({
   onCancel: () => void;
   onSuccess: (response: AdvanceMonthResponse) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -859,7 +884,7 @@ function AdvanceConfirmDialog({
       const response = await simulationApi.advance(simulationId, user.token);
       onSuccess(response);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -877,22 +902,24 @@ function AdvanceConfirmDialog({
     >
       <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="advance-month-title" className="font-display text-xl font-bold text-ink">
-          Advance to the next month?
+          {t("dashboard.advanceDialogTitle")}
         </h3>
-        <p className="mt-2 font-sans text-sm text-name">{ADVANCE_EXPLANATION}</p>
+        <p className="mt-2 font-sans text-sm text-name">{t("dashboard.advanceExplanation")}</p>
 
-        {error && (
+        {error != null && (
           <div className="mt-4">
-            <Banner tone="error">{error}</Banner>
+            <Banner tone="error">
+              {error instanceof ApiError ? error.message : t("common.somethingWentWrong")}
+            </Banner>
           </div>
         )}
 
         <div className="mt-6 flex justify-end gap-3">
           <Button ref={cancelButtonRef} type="button" variant="ink" onClick={close} disabled={submitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Advancing…" : "▸▸ Advance month"}
+            {submitting ? t("dashboard.advancing") : t("dashboard.advanceMonth")}
           </Button>
         </div>
       </div>
@@ -909,8 +936,9 @@ function ResetConfirmDialog({
   onCancel: () => void;
   onSuccess: (response: Simulation) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -940,7 +968,7 @@ function ResetConfirmDialog({
       const response = await simulationApi.reset(simulationId, user.token);
       onSuccess(response);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -958,22 +986,24 @@ function ResetConfirmDialog({
     >
       <div className="relative w-full max-w-[420px] border border-ink/10 bg-panel p-5 shadow-[0_0_0_3px_#211E18] sm:p-8">
         <h3 id="reset-month-title" className="font-display text-xl font-bold text-ink">
-          Reset this month?
+          {t("dashboard.resetDialogTitle")}
         </h3>
-        <p className="mt-2 font-sans text-sm text-name">{RESET_EXPLANATION}</p>
+        <p className="mt-2 font-sans text-sm text-name">{t("dashboard.resetExplanation")}</p>
 
-        {error && (
+        {error != null && (
           <div className="mt-4">
-            <Banner tone="error">{error}</Banner>
+            <Banner tone="error">
+              {error instanceof ApiError ? error.message : t("common.somethingWentWrong")}
+            </Banner>
           </div>
         )}
 
         <div className="mt-6 flex justify-end gap-3">
           <Button ref={cancelButtonRef} type="button" variant="ink" onClick={close} disabled={submitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" onClick={handleConfirm} disabled={submitting}>
-            {submitting ? "Resetting…" : "⟲ Reset"}
+            {submitting ? t("dashboard.resetting") : t("dashboard.reset")}
           </Button>
         </div>
       </div>

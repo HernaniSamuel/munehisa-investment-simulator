@@ -1,5 +1,6 @@
 import { format, line as d3Line, select, timeFormat, zoom, zoomIdentity, type ZoomTransform } from "d3";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { findNearestBarIndex } from "./crosshair";
 import type { ChartTypeRegistry } from "./registries/chart-types";
 import {
@@ -92,6 +93,7 @@ export function FinancialChart({
   drawingToolRegistry = defaultDrawingToolRegistry,
   activeDrawingTool,
 }: FinancialChartProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<SVGRectElement>(null);
 
@@ -192,7 +194,7 @@ export function FinancialChart({
     return (
       <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
         <p role="status" style={{ color: theme.text, background: theme.background }}>
-          No data available
+          {t("chart.noDataAvailable")}
         </p>
       </div>
     );
@@ -234,7 +236,7 @@ export function FinancialChart({
 
   return (
     <div ref={containerRef} style={{ width: "100%", height: "100%" }}>
-      <svg width={size.width} height={size.height} role="img" aria-label="Financial chart">
+      <svg width={size.width} height={size.height} role="img" aria-label={t("chart.ariaLabel")}>
         <rect
           data-testid="chart-background"
           x={0}

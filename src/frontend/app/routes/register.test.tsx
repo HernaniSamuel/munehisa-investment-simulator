@@ -4,6 +4,7 @@ import { useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "~/test/test-utils";
 import { ApiError, authApi } from "~/lib/api";
+import i18n from "~/lib/i18n";
 import Register from "./register";
 
 vi.mock("~/lib/api", async (importOriginal) => {
@@ -120,5 +121,16 @@ describe("Register", () => {
     expect(passwordToggle).toHaveAttribute("aria-label", "Hide password");
     expect(confirmInput).toHaveAttribute("type", "password");
     expect(confirmToggle).toHaveAttribute("aria-label", "Show password");
+  });
+
+  it("renders in pt-BR when that's the active locale", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("pt-BR");
+    });
+    renderWithProviders(<Register />, { route: "/register" });
+
+    expect(screen.getByText("Registrar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▸▸ Criar conta" })).toBeInTheDocument();
   });
 });

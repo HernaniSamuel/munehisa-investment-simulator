@@ -1,3 +1,5 @@
+import i18n from "~/lib/i18n";
+
 const API_URL = import.meta.env.VITE_API_URL;
 
 export class ApiError extends Error {
@@ -49,7 +51,10 @@ function extractErrorMessage(body: unknown, status: number): string {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept-Language": i18n.language,
+  };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
   const response = await fetch(`${API_URL}${path}`, {
