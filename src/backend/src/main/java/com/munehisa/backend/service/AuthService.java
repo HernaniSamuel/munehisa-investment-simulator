@@ -9,10 +9,12 @@ import com.munehisa.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -56,7 +58,8 @@ public class AuthService {
         user.setVerificationTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
         repository.save(user);
 
-        emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken());
+        Locale locale = LocaleContextHolder.getLocale();
+        emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken(), locale);
     }
 
     public Optional<ResendEmailResponseDTO> resendEmail(ResendEmailRequestDTO body) {
@@ -77,7 +80,8 @@ public class AuthService {
         user.setVerificationTokenExpiry(Instant.now().plusMillis(verificationTokenExpirationMs));
         repository.save(user);
 
-        emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken());
+        Locale locale = LocaleContextHolder.getLocale();
+        emailService.sendVerificationEmail(user.getEmail(), user.getVerificationToken(), locale);
 
         return Optional.empty();
     }
@@ -132,7 +136,8 @@ public class AuthService {
         user.setResetPasswordTokenExpiry(Instant.now().plusMillis(resetPasswordTokenExpirationMs));
         repository.save(user);
 
-        emailService.sendPasswordRecoverEmail(user.getEmail(), user.getResetPasswordToken());
+        Locale locale = LocaleContextHolder.getLocale();
+        emailService.sendPasswordRecoverEmail(user.getEmail(), user.getResetPasswordToken(), locale);
 
         return Optional.empty();
     }
