@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 
 public record CashMovementRequestDTO(
         @NotNull
-        @DecimalMin(value = "0.0", inclusive = false, message = "must be greater than zero")
+        @DecimalMin(value = "0.0", inclusive = false, message = "{validation.amount.greaterThanZero}")
         BigDecimal amount,
 
         @NotNull

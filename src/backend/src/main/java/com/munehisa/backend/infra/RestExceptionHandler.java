@@ -4,6 +4,8 @@ import com.munehisa.backend.dto.AccountLockedResponseDTO;
 import com.munehisa.backend.exceptions.*;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
+import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -21,9 +23,19 @@ import java.util.stream.Collectors;
 @ControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
-    public ResponseEntity<RestErrorMessage> buildErrorResponse(RuntimeException exceptionClass, HttpStatus httpStatus) {
-        RestErrorMessage standardErrorMessage = new RestErrorMessage(httpStatus, exceptionClass.getMessage());
+    private final MessageSource messageSource;
+
+    public RestExceptionHandler(MessageSource messageSource) {
+        this.messageSource = messageSource;
+    }
+
+    public ResponseEntity<RestErrorMessage> buildErrorResponse(LocalizedRuntimeException exception, HttpStatus httpStatus) {
+        RestErrorMessage standardErrorMessage = new RestErrorMessage(httpStatus, resolveMessage(exception));
         return ResponseEntity.status(httpStatus).body(standardErrorMessage);
+    }
+
+    private String resolveMessage(LocalizedRuntimeException exception) {
+        return messageSource.getMessage(exception.getMessageCode(), exception.getMessageArgs(), LocaleContextHolder.getLocale());
     }
 
     private void logWarn(RuntimeException exception) {
@@ -117,7 +129,7 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<AccountLockedResponseDTO> accountLockedHandler(AccountLockedException exception) {
         logWarn(exception);
         AccountLockedResponseDTO body = new AccountLockedResponseDTO(
-                exception.getMessage(),
+                resolveMessage(exception),
                 exception.getLockedUntil()
         );
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);

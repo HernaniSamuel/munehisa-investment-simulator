@@ -12,7 +12,7 @@ public record CreateSimulationRequestDTO(
         @NotBlank
         String name,
 
-        @Pattern(regexp = "BRL|USD", message = "must be BRL or USD")
+        @Pattern(regexp = "BRL|USD", message = "{validation.baseCurrency.mustBeBrlOrUsd}")
         @NotBlank
         String baseCurrency,
 
