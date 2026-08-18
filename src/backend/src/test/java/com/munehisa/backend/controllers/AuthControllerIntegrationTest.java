@@ -7,7 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
 import java.time.Instant;
+import java.util.Locale;
 
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -339,5 +343,78 @@ class AuthControllerIntegrationTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.message").isNotEmpty())
                 .andExpect(jsonPath("$.lockedUntil").isNotEmpty())
                 .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    // ---------- Locale-driven verification/password-reset email content (issue #151) ----------
+
+    @Test
+    void register_withAcceptLanguagePtBr_sendsVerificationEmailInPortugueseLocale() throws Exception {
+        RegisterRequestDTO body = new RegisterRequestDTO("Ada Lovelace", "new-user@example.com", "some-password");
+
+        mockMvc.perform(post("/auth/register")
+                        .header("Accept-Language", "pt-BR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        verify(emailService).sendVerificationEmail(eq("new-user@example.com"), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+    }
+
+    @Test
+    void register_withNoAcceptLanguageHeader_sendsVerificationEmailInEnglishLocale() throws Exception {
+        RegisterRequestDTO body = new RegisterRequestDTO("Ada Lovelace", "new-user2@example.com", "some-password");
+
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isCreated());
+
+        verify(emailService).sendVerificationEmail(eq("new-user2@example.com"), anyString(), eq(Locale.ENGLISH));
+    }
+
+    @Test
+    void resendEmail_withAcceptLanguagePtBr_sendsVerificationEmailInPortugueseLocale() throws Exception {
+        createUser(user -> {
+            user.setVerified(false);
+            user.setVerificationToken("old-token");
+            user.setVerificationTokenExpiry(Instant.now().minusSeconds(60));
+        });
+        ResendEmailRequestDTO body = new ResendEmailRequestDTO("ada@example.com");
+
+        mockMvc.perform(post("/auth/resend-verification")
+                        .header("Accept-Language", "pt-BR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        verify(emailService).sendVerificationEmail(eq("ada@example.com"), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+    }
+
+    @Test
+    void forgotPassword_withAcceptLanguagePtBr_sendsPasswordRecoverEmailInPortugueseLocale() throws Exception {
+        createUser(user -> user.setVerified(true));
+        ForgotPasswordRequestDTO body = new ForgotPasswordRequestDTO("ada@example.com");
+
+        mockMvc.perform(post("/auth/forgot-password")
+                        .header("Accept-Language", "pt-BR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        verify(emailService).sendPasswordRecoverEmail(eq("ada@example.com"), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+    }
+
+    @Test
+    void forgotPassword_withAcceptLanguageEn_sendsPasswordRecoverEmailInEnglishLocale() throws Exception {
+        createUser(user -> user.setVerified(true));
+        ForgotPasswordRequestDTO body = new ForgotPasswordRequestDTO("ada@example.com");
+
+        mockMvc.perform(post("/auth/forgot-password")
+                        .header("Accept-Language", "en")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        verify(emailService).sendPasswordRecoverEmail(eq("ada@example.com"), anyString(), eq(Locale.ENGLISH));
     }
 }
