@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.munehisa.backend.exceptions.EmailSendException;
+import com.munehisa.backend.infra.i18n.I18nConfig;
 import com.munehisa.backend.service.EmailService;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -21,6 +23,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.test.context.TestPropertySource;
 import org.thymeleaf.spring6.SpringTemplateEngine;
 
+import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -66,8 +69,13 @@ class AsyncConfigTest {
         }
 
         @Bean
-        EmailService emailService(JavaMailSender javaMailSender, SpringTemplateEngine templateEngine) {
-            return new EmailService(javaMailSender, templateEngine);
+        MessageSource messageSource() {
+            return new I18nConfig().messageSource();
+        }
+
+        @Bean
+        EmailService emailService(JavaMailSender javaMailSender, SpringTemplateEngine templateEngine, MessageSource messageSource) {
+            return new EmailService(javaMailSender, templateEngine, messageSource);
         }
     }
 
@@ -89,7 +97,7 @@ class AsyncConfigTest {
         logger.addAppender(appender);
 
         try {
-            emailService.sendVerificationEmail("user@example.com", "some-verification-token");
+            emailService.sendVerificationEmail("user@example.com", "some-verification-token", Locale.ENGLISH);
 
             assertTrue(logged.await(5, TimeUnit.SECONDS),
                     "expected the async failure to be logged within the timeout");

@@ -13,15 +13,18 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -94,7 +97,22 @@ class AuthServiceTest {
         assertNotNull(user.getVerificationToken());
         assertTrue(user.getVerificationTokenExpiry().isAfter(Instant.now()));
 
-        verify(emailService).sendVerificationEmail(eq("ada@example.com"), eq(user.getVerificationToken()));
+        verify(emailService).sendVerificationEmail(eq("ada@example.com"), eq(user.getVerificationToken()), any(Locale.class));
+    }
+
+    @Test
+    void register_forwardsLocaleContextHolderLocaleToEmailService() {
+        RegisterRequestDTO body = new RegisterRequestDTO("Ada Lovelace", "ada@example.com", "plain-password");
+        when(repository.findByEmail(body.email())).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(body.password())).thenReturn("hashed-password");
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+
+        try {
+            authService.register(body);
+            verify(emailService).sendVerificationEmail(anyString(), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
     }
 
     @Test
@@ -236,7 +254,25 @@ class AuthServiceTest {
         assertNotEquals("old-token", user.getVerificationToken());
         assertTrue(user.getVerificationTokenExpiry().isAfter(Instant.now()));
         verify(repository).save(user);
-        verify(emailService).sendVerificationEmail(eq("ada@example.com"), eq(user.getVerificationToken()));
+        verify(emailService).sendVerificationEmail(eq("ada@example.com"), eq(user.getVerificationToken()), any(Locale.class));
+    }
+
+    @Test
+    void resendEmail_forwardsLocaleContextHolderLocaleToEmailService() {
+        ResendEmailRequestDTO body = new ResendEmailRequestDTO("ada@example.com");
+        User user = buildUser();
+        user.setVerified(false);
+        user.setVerificationToken("old-token");
+        user.setVerificationTokenExpiry(Instant.now().minusSeconds(60));
+        when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+
+        try {
+            authService.resendEmail(body);
+            verify(emailService).sendVerificationEmail(anyString(), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
     }
 
     @Test
@@ -290,7 +326,22 @@ class AuthServiceTest {
         assertNotNull(user.getResetPasswordToken());
         assertTrue(user.getResetPasswordTokenExpiry().isAfter(Instant.now()));
         verify(repository).save(user);
-        verify(emailService).sendPasswordRecoverEmail(eq("ada@example.com"), eq(user.getResetPasswordToken()));
+        verify(emailService).sendPasswordRecoverEmail(eq("ada@example.com"), eq(user.getResetPasswordToken()), any(Locale.class));
+    }
+
+    @Test
+    void forgotPassword_forwardsLocaleContextHolderLocaleToEmailService() {
+        ForgotPasswordRequestDTO body = new ForgotPasswordRequestDTO("ada@example.com");
+        User user = buildUser();
+        when(repository.findByEmail(body.email())).thenReturn(Optional.of(user));
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+
+        try {
+            authService.forgotPassword(body);
+            verify(emailService).sendPasswordRecoverEmail(anyString(), anyString(), eq(Locale.forLanguageTag("pt-BR")));
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
     }
 
     @Test
