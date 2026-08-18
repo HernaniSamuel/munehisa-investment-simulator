@@ -88,6 +88,14 @@ New issues should use the template at
 [.github/ISSUE_TEMPLATE.md](.github/ISSUE_TEMPLATE.md), which covers summary, scope, and
 acceptance criteria.
 
+## Architecture decisions
+
+Architecturally significant decisions — the ones that are costly to reverse, or that were
+chosen over a real alternative — are recorded as Architecture Decision Records (ADRs) in
+[docs/adr/](docs/adr/README.md). When an issue/PR makes a decision like that, it includes the
+matching ADR in the same changeset; see `docs/adr/README.md` for the format and numbering
+convention.
+
 ## Pull requests
 
 Every PR must use the template at
