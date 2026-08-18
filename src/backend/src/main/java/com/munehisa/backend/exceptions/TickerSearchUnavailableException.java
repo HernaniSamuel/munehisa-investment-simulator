@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class TickerSearchUnavailableException extends RuntimeException {
+public class TickerSearchUnavailableException extends LocalizedRuntimeException {
     public TickerSearchUnavailableException(Throwable cause) {
-        super("Ticker search is unavailable: the data-service request failed", cause);
+        super("error.tickerSearchUnavailable", cause);
     }
 }

@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class SnapshotNotFoundException extends RuntimeException {
+public class SnapshotNotFoundException extends LocalizedRuntimeException {
     public SnapshotNotFoundException() {
-        super("Snapshot not found");
+        super("error.snapshotNotFound");
     }
 }

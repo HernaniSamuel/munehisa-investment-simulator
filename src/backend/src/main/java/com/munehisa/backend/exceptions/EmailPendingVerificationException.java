@@ -1,5 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class EmailPendingVerificationException extends RuntimeException {
-    public EmailPendingVerificationException() { super("The email should be verified."); }
+public class EmailPendingVerificationException extends LocalizedRuntimeException {
+    public EmailPendingVerificationException() {
+        super("error.emailPendingVerification");
+    }
 }

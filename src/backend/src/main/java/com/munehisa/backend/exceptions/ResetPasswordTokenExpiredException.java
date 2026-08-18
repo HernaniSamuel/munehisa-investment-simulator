@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class ResetPasswordTokenExpiredException extends RuntimeException {
+public class ResetPasswordTokenExpiredException extends LocalizedRuntimeException {
     public ResetPasswordTokenExpiredException() {
-        super("Reset password token has expired.");
+        super("error.resetPasswordTokenExpired");
     }
 }
