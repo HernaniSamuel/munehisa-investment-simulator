@@ -19,9 +19,14 @@ import com.munehisa.backend.exceptions.ResetPasswordTokenNotFoundException;
 import com.munehisa.backend.exceptions.TickerSearchUnavailableException;
 import com.munehisa.backend.exceptions.VerificationTokenExpiredException;
 import com.munehisa.backend.exceptions.VerificationTokenNotFoundException;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.MessageSource;
+import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -33,6 +38,7 @@ import org.springframework.web.context.request.WebRequest;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -45,7 +51,26 @@ class RestExceptionHandlerTest {
 
     private static final String GENERIC_MESSAGE = "An unexpected error occurred.";
 
-    private final RestExceptionHandler handler = new RestExceptionHandler();
+    private final MessageSource messageSource = buildMessageSource();
+    private final RestExceptionHandler handler = new RestExceptionHandler(messageSource);
+
+    private static MessageSource buildMessageSource() {
+        ResourceBundleMessageSource source = new ResourceBundleMessageSource();
+        source.setBasenames("messages");
+        source.setDefaultEncoding("UTF-8");
+        source.setFallbackToSystemLocale(false);
+        return source;
+    }
+
+    @BeforeEach
+    void pinEnglishLocale() {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+    }
+
+    @AfterEach
+    void resetLocale() {
+        LocaleContextHolder.resetLocaleContext();
+    }
 
     @Test
     void runtimeExceptionHandler_returns500WithGenericSanitizedMessage() {
@@ -96,43 +121,47 @@ class RestExceptionHandlerTest {
     }
 
     @Test
-    void assetUnavailableHandler_returns503WithOriginalMessageUnchanged() {
+    void assetUnavailableHandler_returnsLocalizedEnglishMessage() {
         AssetUnavailableException exception = new AssetUnavailableException("AAPL", null);
 
         ResponseEntity<RestErrorMessage> response = handler.assetUnavailableHandler(exception);
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(exception.getMessage(), response.getBody().getMessage());
+        assertEquals("No cached asset data available for AAPL and refresh from data-service failed",
+                response.getBody().getMessage());
     }
 
     @Test
-    void exchangeRateUnavailableHandler_returns503WithOriginalMessageUnchanged() {
+    void exchangeRateUnavailableHandler_returnsLocalizedEnglishMessage() {
         ExchangeRateUnavailableException exception = new ExchangeRateUnavailableException("USD", "EUR", null);
 
         ResponseEntity<RestErrorMessage> response = handler.exchangeRateUnavailableHandler(exception);
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(exception.getMessage(), response.getBody().getMessage());
+        assertEquals("No cached exchange rate data available for USD/EUR and refresh from data-service failed",
+                response.getBody().getMessage());
     }
 
     @Test
-    void inflationUnavailableHandler_returns503WithOriginalMessageUnchanged() {
+    void inflationUnavailableHandler_returnsLocalizedEnglishMessage() {
         InflationUnavailableException exception = new InflationUnavailableException(InflationCurrency.USD, null);
 
         ResponseEntity<RestErrorMessage> response = handler.inflationUnavailableHandler(exception);
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(exception.getMessage(), response.getBody().getMessage());
+        assertEquals("No cached inflation data available for USD and refresh from data-service failed",
+                response.getBody().getMessage());
     }
 
     @Test
-    void tickerSearchUnavailableHandler_returns503WithOriginalMessageUnchanged() {
+    void tickerSearchUnavailableHandler_returnsLocalizedEnglishMessage() {
         TickerSearchUnavailableException exception = new TickerSearchUnavailableException(null);
 
         ResponseEntity<RestErrorMessage> response = handler.tickerSearchUnavailableHandler(exception);
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(exception.getMessage(), response.getBody().getMessage());
+        assertEquals("Ticker search is unavailable: the data-service request failed",
+                response.getBody().getMessage());
     }
 
     @Test
@@ -187,8 +216,8 @@ class RestExceptionHandlerTest {
             assertEquals(Level.WARN, event.getLevel());
             assertTrue(event.getFormattedMessage().contains("InvalidCredentialsException"));
             // InvalidCredentialsException takes no constructor argument - it can never carry the
-            // submitted password in the first place, so logging its message verbatim is safe.
-            assertEquals("Invalid Credentials", new InvalidCredentialsException().getMessage());
+            // submitted password in the first place, so logging its message code verbatim is safe.
+            assertEquals("error.invalidCredentials", new InvalidCredentialsException().getMessageCode());
         } finally {
             logger.detachAppender(appender);
         }
@@ -251,15 +280,15 @@ class RestExceptionHandlerTest {
     }
 
     @Test
-    void tokenAndCredentialExceptions_carryOnlyStaticSecretFreeMessages() {
+    void tokenAndCredentialExceptions_carryOnlyStaticSecretFreeMessageCodes() {
         // These handlers log exception.getMessage() verbatim (via logWarn). That's only safe
         // because none of these exceptions accept the raw token/password as a constructor
-        // argument - each message is a fixed string with no dynamic/secret content.
-        assertEquals("Verification token not found.", new VerificationTokenNotFoundException().getMessage());
-        assertEquals("Verification token has expired.", new VerificationTokenExpiredException().getMessage());
-        assertEquals("Reset password token not found.", new ResetPasswordTokenNotFoundException().getMessage());
-        assertEquals("Reset password token has expired.", new ResetPasswordTokenExpiredException().getMessage());
-        assertEquals("Invalid Credentials", new InvalidCredentialsException().getMessage());
+        // argument - each message code carries no dynamic/secret content.
+        assertEquals("error.verificationTokenNotFound", new VerificationTokenNotFoundException().getMessageCode());
+        assertEquals("error.verificationTokenExpired", new VerificationTokenExpiredException().getMessageCode());
+        assertEquals("error.resetPasswordTokenNotFound", new ResetPasswordTokenNotFoundException().getMessageCode());
+        assertEquals("error.resetPasswordTokenExpired", new ResetPasswordTokenExpiredException().getMessageCode());
+        assertEquals("error.invalidCredentials", new InvalidCredentialsException().getMessageCode());
     }
 
     @Test
@@ -285,5 +314,57 @@ class RestExceptionHandlerTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    @Test
+    void insufficientCashBalanceHandler_returnsEnglishMessage_whenLocaleIsEnglish() {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+
+        ResponseEntity<RestErrorMessage> response = handler.insufficientCashBalanceHandler(
+                new InsufficientCashBalanceException(BigDecimal.valueOf(150.00), BigDecimal.valueOf(50.00)));
+
+        assertEquals("Withdrawal amount (150.0) exceeds available cash balance (50.0)",
+                response.getBody().getMessage());
+    }
+
+    @Test
+    void insufficientCashBalanceHandler_returnsPortugueseMessage_whenLocaleIsPtBr() {
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+
+        ResponseEntity<RestErrorMessage> response = handler.insufficientCashBalanceHandler(
+                new InsufficientCashBalanceException(BigDecimal.valueOf(150.00), BigDecimal.valueOf(50.00)));
+
+        assertEquals("O valor do saque (150.0) excede o saldo em caixa disponível (50.0)",
+                response.getBody().getMessage());
+    }
+
+    @Test
+    void insufficientCashBalanceHandler_returnsEnglishMessage_whenLocaleIsUnsupported() {
+        LocaleContextHolder.setLocale(Locale.FRENCH);
+
+        ResponseEntity<RestErrorMessage> response = handler.insufficientCashBalanceHandler(
+                new InsufficientCashBalanceException(BigDecimal.valueOf(150.00), BigDecimal.valueOf(50.00)));
+
+        assertEquals("Withdrawal amount (150.0) exceeds available cash balance (50.0)",
+                response.getBody().getMessage());
+    }
+
+    @Test
+    void accountLockedHandler_returnsLocalizedMessageInBody() {
+        Instant lockedUntil = Instant.parse("2026-01-01T00:00:00Z");
+
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        ResponseEntity<AccountLockedResponseDTO> englishResponse =
+                handler.accountLockedHandler(new AccountLockedException(lockedUntil));
+        assertEquals("Account temporarily locked due to repeated failed attempts",
+                englishResponse.getBody().message());
+        assertEquals(lockedUntil, englishResponse.getBody().lockedUntil());
+
+        LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+        ResponseEntity<AccountLockedResponseDTO> portugueseResponse =
+                handler.accountLockedHandler(new AccountLockedException(lockedUntil));
+        assertEquals("Conta temporariamente bloqueada devido a repetidas tentativas de login malsucedidas",
+                portugueseResponse.getBody().message());
+        assertEquals(lockedUntil, portugueseResponse.getBody().lockedUntil());
     }
 }
