@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class ResetPasswordTokenNotFoundException extends RuntimeException {
+public class ResetPasswordTokenNotFoundException extends LocalizedRuntimeException {
     public ResetPasswordTokenNotFoundException() {
-        super("Reset password token not found.");
+        super("error.resetPasswordTokenNotFound");
     }
 }

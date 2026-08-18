@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class SimulationNotFoundException extends RuntimeException {
+public class SimulationNotFoundException extends LocalizedRuntimeException {
     public SimulationNotFoundException() {
-        super("Simulation not found");
+        super("error.simulationNotFound");
     }
 }

@@ -2,11 +2,11 @@ package com.munehisa.backend.exceptions;
 
 import java.time.Instant;
 
-public class AccountLockedException extends RuntimeException {
+public class AccountLockedException extends LocalizedRuntimeException {
     private final Instant lockedUntil;
 
     public AccountLockedException(Instant lockedUntil) {
-        super("Account temporarily locked due to repeated failed attempts");
+        super("error.accountLocked");
         this.lockedUntil = lockedUntil;
     }
 

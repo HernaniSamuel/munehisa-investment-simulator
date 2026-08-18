@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class InvalidCredentialsException extends RuntimeException {
+public class InvalidCredentialsException extends LocalizedRuntimeException {
     public InvalidCredentialsException() {
-        super("Invalid Credentials");
+        super("error.invalidCredentials");
     }
 }

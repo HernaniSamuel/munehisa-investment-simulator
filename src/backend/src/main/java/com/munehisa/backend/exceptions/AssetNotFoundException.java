@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class AssetNotFoundException extends RuntimeException {
+public class AssetNotFoundException extends LocalizedRuntimeException {
     public AssetNotFoundException(String ticker, Throwable cause) {
-        super("Unknown ticker " + ticker + " - not found by the data-service", cause);
+        super("error.assetNotFound", cause, ticker);
     }
 }

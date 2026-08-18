@@ -1,8 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class ExchangeRateUnavailableException extends RuntimeException {
+public class ExchangeRateUnavailableException extends LocalizedRuntimeException {
     public ExchangeRateUnavailableException(String baseCurrency, String quoteCurrency, Throwable cause) {
-        super("No cached exchange rate data available for " + baseCurrency + "/" + quoteCurrency
-                + " and refresh from data-service failed", cause);
+        super("error.exchangeRateUnavailable", cause, baseCurrency, quoteCurrency);
     }
 }

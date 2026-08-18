@@ -1,7 +1,7 @@
 package com.munehisa.backend.exceptions;
 
-public class EmailSendException extends RuntimeException {
+public class EmailSendException extends LocalizedRuntimeException {
     public EmailSendException(Throwable cause) {
-        super("Failed to send email", cause);
+        super("error.emailSend", cause);
     }
 }
