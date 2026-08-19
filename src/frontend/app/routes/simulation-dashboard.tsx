@@ -646,7 +646,7 @@ function AllocationDonut({
 
 // Color derives from type, never from amount's sign - amount is always a
 // positive magnitude per the transactions API contract.
-const VERMILION_TYPES: TransactionType[] = ["SELL", "DEPOSIT", "DIVIDEND"];
+const VERMILION_TYPES: TransactionType[] = ["SELL", "DEPOSIT", "DIVIDEND", "CASH_IN_LIEU"];
 
 function TransactionHistory({
   transactions,
@@ -685,13 +685,7 @@ function TransactionHistory({
                   className="flex items-center justify-between border-b border-ink/[.08] py-1.5"
                 >
                   <span className="font-sans text-sm text-name">
-                    {tx.type === "SELL" ? (
-                      <Tooltip label={t("dashboard.sellSplitExplanation")}>
-                        <span tabIndex={0}>{t(`dashboard.transactionType.${tx.type}`)}</span>
-                      </Tooltip>
-                    ) : (
-                      t(`dashboard.transactionType.${tx.type}`)
-                    )}
+                    {t(`dashboard.transactionType.${tx.type}`)}
                     {tx.ticker ? ` · ${tx.ticker}` : ""}
                   </span>
                   <span

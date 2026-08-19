@@ -202,9 +202,8 @@ const ptBR: DeepStringSchema<TranslationSchema> = {
       BUY: "Compra",
       SELL: "Venda",
       DIVIDEND: "Dividendo",
+      CASH_IN_LIEU: "Fração em dinheiro",
     },
-    sellSplitExplanation:
-      "Algumas vendas acontecem automaticamente quando um desdobramento de ações força uma venda, não porque você vendeu.",
     cashBalanceExplanation: "O valor disponível para comprar ativos.",
     portfolioValueExplanation: "O valor atualmente investido e disponível para venda.",
     totalValueExplanation: "Caixa mais valor investido.",
