@@ -39,3 +39,10 @@ away from the user — rounding up would fabricate a share the user never bought
 engine only ever does with cents of currency, never with asset ownership, so cash-in-lieu was
 the only option consistent with that invariant. It mirrors a practice used by real brokerages
 when a reverse split leaves a holder without enough shares for one whole unit.
+
+Worth flagging for a future reader: the floor-and-cash-out path only runs when the price series
+isn't already split-adjusted (`!lookup.pricesSplitAdjusted()` in
+`SimulationService.advanceMonth()`), and the project's only live data source, yfinance, always
+reports prices as already split-adjusted (`yfinance_client.py`'s `prices_split_adjusted=True`).
+So today this path is dormant against real data — it's exercised only by test fixtures that set
+`pricesSplitAdjusted=false`, not by any simulation running on real market data.
