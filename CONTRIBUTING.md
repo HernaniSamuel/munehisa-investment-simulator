@@ -96,6 +96,16 @@ chosen over a real alternative — are recorded as Architecture Decision Records
 matching ADR in the same changeset; see `docs/adr/README.md` for the format and numbering
 convention.
 
+## Business-rule decisions
+
+Business-rule decisions — domain/behavioral choices about how the simulation and financial
+logic behave, where a genuine alternative existed and something specific was picked (e.g.
+accounting method, rounding policy, timing rules) — are recorded in
+[docs/business-rules/](docs/business-rules/README.md), parallel to Architecture Decision
+Records. When an issue/PR makes a decision like that, it includes the matching record in the
+same changeset; see `docs/business-rules/README.md` for the format, the business-rule-vs-ADR
+distinction, and the numbering convention.
+
 ## Pull requests
 
 Every PR must use the template at
