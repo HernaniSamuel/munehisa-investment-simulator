@@ -39,8 +39,8 @@ Cloud VM (see [ADR-0011](docs/adr/0011-hetzner-hosting-self-hosted-postgres.md))
 ## Features
 
 - **Account registration with email verification**, JWT-based login, and password reset by
-  email (`POST /auth/register`, `/auth/verify`, `/auth/login`, `/auth/forgot-password`,
-  `/auth/reset-password` — `AuthController`).
+  email (`POST /auth/register`, `GET /auth/verify`, `POST /auth/login`,
+  `POST /auth/forgot-password`, `POST /auth/reset-password` — `AuthController`).
 - **Simulation creation** with a chosen start month and base currency, restricted to **USD/BRL**
   (`POST /simulations` — `SimulationController`; see
   [business-rule-0006](docs/business-rules/0006-usd-brl-only-base-currencies.md)).
