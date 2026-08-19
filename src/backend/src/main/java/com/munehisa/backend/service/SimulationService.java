@@ -467,7 +467,7 @@ public class SimulationService {
 
                     Transaction splitTransaction = new Transaction();
                     splitTransaction.setSimulationId(simulation.getId());
-                    splitTransaction.setType(TransactionType.SELL);
+                    splitTransaction.setType(TransactionType.CASH_IN_LIEU);
                     splitTransaction.setMonth(simulation.getCurrentMonth());
                     splitTransaction.setAmount(cashInLieu);
                     splitTransaction.setTicker(asset.getTicker());
@@ -604,7 +604,8 @@ public class SimulationService {
 
         List<Transaction> monthTransactions = transactionRepository.findBySimulationId(simulation.getId()).stream()
                 .filter(transaction -> transaction.getMonth().equals(simulation.getCurrentMonth())
-                        && transaction.getType() != TransactionType.DIVIDEND)
+                        && transaction.getType() != TransactionType.DIVIDEND
+                        && transaction.getType() != TransactionType.CASH_IN_LIEU)
                 .toList();
         transactionRepository.deleteAll(monthTransactions);
 

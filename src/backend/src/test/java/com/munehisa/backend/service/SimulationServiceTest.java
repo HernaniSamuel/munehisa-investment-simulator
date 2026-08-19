@@ -1441,7 +1441,7 @@ class SimulationServiceTest {
     }
 
     @Test
-    void advanceMonth_reverseSplitWithRemainder_reducesCostBasisProportionallyAndRecordsSellTransaction() {
+    void advanceMonth_reverseSplitWithRemainder_reducesCostBasisProportionallyAndRecordsCashInLieuTransaction() {
         User user = user();
         Simulation simulation = simulation(user.getId());
         UUID assetId = UUID.randomUUID();
@@ -1473,7 +1473,7 @@ class SimulationServiceTest {
 
         ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
         verify(transactionRepository).save(transactionCaptor.capture());
-        assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
+        assertEquals(TransactionType.CASH_IN_LIEU, transactionCaptor.getValue().getType());
         assertEquals("AAPL", transactionCaptor.getValue().getTicker());
         assertEquals(0, new BigDecimal("3.00").compareTo(transactionCaptor.getValue().getAmount()));
         assertEquals(0, new BigDecimal("0.3").compareTo(transactionCaptor.getValue().getQuantity()));
@@ -1519,7 +1519,7 @@ class SimulationServiceTest {
 
         ArgumentCaptor<Transaction> transactionCaptor = ArgumentCaptor.forClass(Transaction.class);
         verify(transactionRepository).save(transactionCaptor.capture());
-        assertEquals(TransactionType.SELL, transactionCaptor.getValue().getType());
+        assertEquals(TransactionType.CASH_IN_LIEU, transactionCaptor.getValue().getType());
         // 100% of the cost basis was cashed out - not asserted directly since the Position row
         // is deleted, but costBasisRemoved's proportion (0.15 / 0.15) is exercised regardless.
         assertEquals(0, new BigDecimal("15.00").compareTo(transactionCaptor.getValue().getAmount()));
@@ -1590,10 +1590,10 @@ class SimulationServiceTest {
         verify(transactionRepository, times(2)).save(transactionCaptor.capture());
         List<Transaction> saved = transactionCaptor.getAllValues();
         Transaction dividendTransaction = saved.stream().filter(t -> t.getType() == TransactionType.DIVIDEND).findFirst().orElseThrow();
-        Transaction sellTransaction = saved.stream().filter(t -> t.getType() == TransactionType.SELL).findFirst().orElseThrow();
+        Transaction cashInLieuTransaction = saved.stream().filter(t -> t.getType() == TransactionType.CASH_IN_LIEU).findFirst().orElseThrow();
         assertEquals(0, new BigDecimal("2.30").compareTo(dividendTransaction.getAmount()));
-        assertEquals(0, new BigDecimal("3.00").compareTo(sellTransaction.getAmount()));
-        assertEquals(0, new BigDecimal("0.3").compareTo(sellTransaction.getQuantity()));
+        assertEquals(0, new BigDecimal("3.00").compareTo(cashInLieuTransaction.getAmount()));
+        assertEquals(0, new BigDecimal("0.3").compareTo(cashInLieuTransaction.getQuantity()));
     }
 
     @Test
@@ -1891,7 +1891,7 @@ class SimulationServiceTest {
     }
 
     @Test
-    void resetToSnapshot_happyPath_restoresCashRecreatesPositionsAndDeletesMonthNonDividendTransactions() {
+    void resetToSnapshot_happyPath_restoresCashRecreatesPositionsAndDeletesMonthTransactionsExceptDividendAndCashInLieu() {
         User user = user();
         Simulation simulation = simulation(user.getId());
         when(simulationRepository.findByIdAndUserId(simulation.getId(), user.getId())).thenReturn(Optional.of(simulation));
@@ -1926,9 +1926,10 @@ class SimulationServiceTest {
 
         Transaction depositThisMonth = transaction(simulation.getId(), TransactionType.DEPOSIT, simulation.getCurrentMonth());
         Transaction dividendThisMonth = transaction(simulation.getId(), TransactionType.DIVIDEND, simulation.getCurrentMonth());
+        Transaction cashInLieuThisMonth = transaction(simulation.getId(), TransactionType.CASH_IN_LIEU, simulation.getCurrentMonth());
         Transaction buyLastMonth = transaction(simulation.getId(), TransactionType.BUY, simulation.getCurrentMonth().minusMonths(1));
         when(transactionRepository.findBySimulationId(simulation.getId()))
-                .thenReturn(List.of(depositThisMonth, dividendThisMonth, buyLastMonth));
+                .thenReturn(List.of(depositThisMonth, dividendThisMonth, cashInLieuThisMonth, buyLastMonth));
 
         SimulationResponseDTO response = buildService(fixedClockOn(LocalDate.of(2024, 7, 15)))
                 .resetToSnapshot(simulation.getId(), user);
@@ -2048,11 +2049,12 @@ class SimulationServiceTest {
         transaction.setType(type);
         transaction.setMonth(month);
         transaction.setAmount(BigDecimal.TEN);
-        if (type == TransactionType.BUY || type == TransactionType.SELL || type == TransactionType.DIVIDEND) {
+        if (type == TransactionType.BUY || type == TransactionType.SELL
+                || type == TransactionType.CASH_IN_LIEU || type == TransactionType.DIVIDEND) {
             transaction.setTicker("AAPL");
             transaction.setAssetName("Apple Inc.");
         }
-        if (type == TransactionType.BUY || type == TransactionType.SELL) {
+        if (type == TransactionType.BUY || type == TransactionType.SELL || type == TransactionType.CASH_IN_LIEU) {
             transaction.setQuantity(BigDecimal.ONE);
         }
         return transaction;
