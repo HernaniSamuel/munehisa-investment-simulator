@@ -199,9 +199,8 @@ const en = {
       BUY: "Buy",
       SELL: "Sell",
       DIVIDEND: "Dividend",
+      CASH_IN_LIEU: "Cash in lieu",
     },
-    sellSplitExplanation:
-      "Some sells happen automatically when a stock split forces a sale, not because you sold.",
     cashBalanceExplanation: "The amount available to buy assets.",
     portfolioValueExplanation: "The value currently invested and available for sale.",
     totalValueExplanation: "Cash plus invested value.",

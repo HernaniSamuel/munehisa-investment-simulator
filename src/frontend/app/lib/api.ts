@@ -181,7 +181,7 @@ export type PositionsResponse = {
   totalGainPercent: number;
 };
 
-export type TransactionType = "BUY" | "SELL" | "DEPOSIT" | "WITHDRAWAL" | "DIVIDEND";
+export type TransactionType = "BUY" | "SELL" | "DEPOSIT" | "WITHDRAWAL" | "DIVIDEND" | "CASH_IN_LIEU";
 
 export type Transaction = {
   type: TransactionType;
