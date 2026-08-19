@@ -118,8 +118,8 @@ function SimulationListScreen() {
       >
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center bg-ink font-display text-xl text-paper">
-              蔵
+            <div className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap bg-ink px-2 font-display text-xl text-paper">
+              宗久
             </div>
             <div>
               <h1 className="font-display text-xl font-bold text-ink">Munehisa</h1>

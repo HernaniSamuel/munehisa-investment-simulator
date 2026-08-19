@@ -101,6 +101,15 @@ describe("header", () => {
     expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
   });
 
+  it("shows the Munehisa logo badge as 宗久, guarded against wrapping or being squeezed by neighboring content", async () => {
+    vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
+    renderHome();
+    await screen.findByText(/Welcome,/);
+
+    const seal = screen.getByText("宗久");
+    expect(seal).toHaveClass("whitespace-nowrap", "shrink-0");
+  });
+
   it("navigates to /settings when Settings is clicked", async () => {
     vi.mocked(simulationApi.list).mockResolvedValueOnce([]);
     const user = userEvent.setup();

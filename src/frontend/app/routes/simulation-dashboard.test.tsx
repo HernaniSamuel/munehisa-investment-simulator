@@ -245,6 +245,30 @@ describe("header", () => {
 
     expect(screen.queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
   });
+
+  it("stacks the header controls into full-width rows below sm, keeping the sm+ layout (flex-wrap, items-center) unchanged", async () => {
+    mockLoadSuccess();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const actions = screen.getByTestId("header-actions");
+    expect(actions).toHaveClass("flex", "flex-col", "items-stretch");
+    expect(actions).toHaveClass("sm:flex-row", "sm:flex-wrap", "sm:items-center");
+  });
+
+  it("keeps the header controls in their current order: language switcher, current date, Reset, Trade assets, Advance month", async () => {
+    mockLoadSuccess();
+    renderDashboard();
+    await screen.findByText(sim.name);
+
+    const controls = Array.from(screen.getByTestId("header-actions").children) as HTMLElement[];
+    expect(controls).toHaveLength(5);
+    expect(controls[0]).toHaveAttribute("role", "group");
+    expect(controls[1]).toHaveTextContent("Current date");
+    expect(within(controls[2]).getByRole("button", { name: "⟲ Reset" })).toBeInTheDocument();
+    expect(controls[3]).toHaveAttribute("href", `/simulations/${sim.id}/trade`);
+    expect(within(controls[4]).getByRole("button", { name: "▸▸ Advance month" })).toBeInTheDocument();
+  });
 });
 
 describe("stat cards", () => {

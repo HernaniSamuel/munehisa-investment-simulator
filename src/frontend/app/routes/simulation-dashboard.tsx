@@ -294,7 +294,10 @@ function DashboardHeader({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div
+        data-testid="header-actions"
+        className="flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-center"
+      >
         <LanguageSwitcher />
 
         <div className="border border-ink/15 bg-panel px-4 py-2 text-center">
