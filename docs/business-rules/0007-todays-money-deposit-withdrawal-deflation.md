@@ -10,20 +10,21 @@ A user running a simulation set in the past (e.g. starting in 2002) but thinking
 present-day terms — "I want to simulate depositing what I earn today, R$600/month" — would get
 a distorted simulation if that value were applied nominally to a past month, since R$600 was
 worth substantially more purchasing power decades ago than it is now.
-`CashMovementRequestDTO`'s optional `todaysMoney` flag exists to let a user express a deposit
-or withdrawal in today's purchasing power and have the simulator convert it to the nominal
-amount for the simulation's current month — useful in particular for a recurring deposit meant
-to track something like a salary, where re-deriving the inflation adjustment by hand every
-month would be tedious and easy to get wrong.
+`CashMovementRequestDTO`'s `todaysMoney` flag exists to let a user express a deposit or
+withdrawal in today's purchasing power and have the simulator convert it to the nominal amount
+for the simulation's current month — useful in particular for a recurring deposit meant to
+track something like a salary, where re-deriving the inflation adjustment by hand every month
+would be tedious and easy to get wrong.
 
 ## Decision
 
 We will, when a cash movement is flagged `todaysMoney`, convert the entered value by the ratio
 of two accumulated inflation-index points (target month over real current month) before
 applying it to the cash balance (`InflationDeflationService.deflate()`), rather than applying
-the entered value nominally. The flag stays optional — a user can also enter a fixed/
-period-accurate value directly, without inflation adjustment, which also keeps a withdrawal
-simple when the user wants an exact, known amount out.
+the entered value nominally. The inflation adjustment itself is opt-in — `todaysMoney` is a
+required boolean on every request (`CashMovementRequestDTO.todaysMoney` is `@NotNull`), but a
+caller sets it to `false` to apply the entered value nominally instead, which also keeps a
+withdrawal simple when the user wants an exact, known amount out.
 
 ## Consequences
 
