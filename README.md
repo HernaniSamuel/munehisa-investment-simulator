@@ -29,13 +29,6 @@ Asset search, an interactive candlestick price chart, and the buy/sell form.
 
 ![Trade screen](docs/screenshots/trade-screen.png)
 
-## Live demo
-
-**[hernanisamuel.github.io/munehisa-investment-simulator](https://hernanisamuel.github.io/munehisa-investment-simulator/)**
-
-The frontend is static (GitHub Pages) and backed by a live Spring Boot API hosted on a Hetzner
-Cloud VM (see [ADR-0011](docs/adr/0011-hetzner-hosting-self-hosted-postgres.md)).
-
 ## Features
 
 - **Account registration with email verification**, JWT-based login, and password reset by
